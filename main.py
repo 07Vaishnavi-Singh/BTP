@@ -19,6 +19,52 @@ def parse_xyz_file(filepath):
     
     return atoms, coordinates
 
+# @dev function to find the 6 nearest I atoms to the centre Pb atom 
+def find_nearest_I_atoms(central_pb_coords, atoms, coordinates, num_neighbors=6):
+    """
+    Find the nearest I (iodine) atoms to the central Pb atom
+    
+    Parameters:
+    -----------
+    central_pb_coords : tuple
+        (x, y, z) coordinates of the central Pb atom
+    atoms : list
+        List of atom symbols
+    coordinates : list
+        List of (x, y, z) coordinates for each atom
+    num_neighbors : int, optional
+        Number of nearest I atoms to find (default: 6)
+        
+    Returns:
+    --------
+    list
+        List of dictionaries containing information about the nearest I atoms
+    """
+    # Calculate distances from central Pb to all I atoms
+    distances = []
+    central_x, central_y, central_z = central_pb_coords
+    
+    for i in range(len(atoms)):
+        if atoms[i] == 'I':  # Only consider I atoms
+            x, y, z = coordinates[i]
+            distance = ((x - central_x)**2 + 
+                       (y - central_y)**2 + 
+                       (z - central_z)**2)**0.5
+            
+            distances.append({
+                'index': i,
+                'atom': atoms[i],
+                'coordinates': coordinates[i],
+                'distance': distance
+            })
+    
+    # Sort by distance
+    distances.sort(key=lambda x: x['distance'])
+    
+    # Return the num_neighbors nearest I atoms
+    return distances[:num_neighbors]
+
+
 def find_center_atom(atoms, coordinates):
     """
     Find the atom that is most central (has smallest maximum distance to any other atom)
@@ -82,41 +128,64 @@ def find_nearest_pb_atom(center_coords, atoms, coordinates):
         }
     return None
 
-# Usage example
-try:
-    # Parse the file
-    atoms, coordinates = parse_xyz_file('vesta_file.xyz')
-    
-    # Find the center atom
-    result = find_center_atom(atoms, coordinates)
-    
-    if result:
-        print("\nCenter Atom Analysis:")
-        print(f"Center atom type: {result['center_atom']}")
-        print(f"Center coordinates: X: {result['center_coordinates'][0]:.6f}, "
-              f"Y: {result['center_coordinates'][1]:.6f}, "
-              f"Z: {result['center_coordinates'][2]:.6f}")
-        print(f"Maximum distance to any other atom: {result['max_distance']:.6f}")
-        print(f"Total atoms: {result['num_atoms']}")
-        
-        if result['center_atom'] != "Pb":
-            print(f"\nFinding nearest Pb atom to the center atom...")
-            nearest_pb = find_nearest_pb_atom(
-                result['center_coordinates'],
-                atoms,
-                coordinates
-            )
-            
-            if nearest_pb:
-                print("\nNearest Pb Atom Found:")
-                pb_coords = nearest_pb['coordinates']
-                print(f"Coordinates: X: {pb_coords[0]:.6f}, Y: {pb_coords[1]:.6f}, Z: {pb_coords[2]:.6f}")
-                print(f"Distance from center atom: {nearest_pb['distance']:.6f}")
-            else:
-                print("No Pb atoms found in the structure")
-    else:
-        print("No results found from coordinate calculation")
-except Exception as e:
-    print(f"An error occurred: {e}")
 
-    
+def main():
+    try:
+        # Parse the file
+        atoms, coordinates = parse_xyz_file('vesta_file.xyz')
+        
+        # Find the center atom
+        result = find_center_atom(atoms, coordinates)
+        
+        if result:
+            print("\nCenter Atom Analysis:")
+            print(f"Center atom type: {result['center_atom']}")
+            print(f"Center coordinates: X: {result['center_coordinates'][0]:.6f}, "
+                  f"Y: {result['center_coordinates'][1]:.6f}, "
+                  f"Z: {result['center_coordinates'][2]:.6f}")
+            print(f"Maximum distance to any other atom: {result['max_distance']:.6f}")
+            print(f"Total atoms: {result['num_atoms']}")
+            
+            if result['center_atom'] != "Pb":
+                print(f"\nFinding nearest Pb atom to the center atom...")
+                nearest_pb = find_nearest_pb_atom(
+                    result['center_coordinates'],
+                    atoms,
+                    coordinates
+                )
+                
+                if nearest_pb:
+                    print("\nNearest Pb Atom Found:")
+                    pb_coords = nearest_pb['coordinates']
+                    print(f"Coordinates: X: {pb_coords[0]:.6f}, Y: {pb_coords[1]:.6f}, Z: {pb_coords[2]:.6f}")
+                    print(f"Distance from center atom: {nearest_pb['distance']:.6f}")
+                    
+                    # Find the 6 nearest I atoms to this Pb atom
+                    nearest_I = find_nearest_I_atoms(pb_coords, atoms, coordinates)
+                    
+                    print("\n6 Nearest I Atoms to Central Pb:")
+                    for i, iodine in enumerate(nearest_I, 1):
+                        i_coords = iodine['coordinates']
+                        print(f"{i}. I atom at X: {i_coords[0]:.6f}, Y: {i_coords[1]:.6f}, Z: {i_coords[2]:.6f}")
+                        print(f"   Distance from Pb: {iodine['distance']:.6f}")
+                    
+                else:
+                    print("No Pb atoms found in the structure")
+            else:
+                # The center atom is already Pb, find the 6 nearest I atoms to it
+                print("\nFinding 6 nearest I atoms to the central Pb atom...")
+                nearest_I = find_nearest_I_atoms(result['center_coordinates'], atoms, coordinates)
+                
+                print("\n6 Nearest I Atoms to Central Pb:")
+                for i, iodine in enumerate(nearest_I, 1):
+                    i_coords = iodine['coordinates']
+                    print(f"{i}. I atom at X: {i_coords[0]:.6f}, Y: {i_coords[1]:.6f}, Z: {i_coords[2]:.6f}")
+                    print(f"   Distance from Pb: {iodine['distance']:.6f}")
+        else:
+            print("No results found from coordinate calculation")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+# Run the main function when the script is executed
+if __name__ == "__main__":
+    main()
