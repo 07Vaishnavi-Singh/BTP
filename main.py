@@ -19,6 +19,113 @@ def parse_xyz_file(filepath):
     
     return atoms, coordinates
 
+# @dev fucntion to calcualte the volume of octahedral 
+def calculate_octahedral_volume(central_atom_coords, coordinating_atoms):
+    """
+    Calculate the volume of an octahedron by decomposing it into tetrahedra
+    
+    Parameters:
+    -----------
+    central_atom_coords : tuple
+        (x, y, z) coordinates of the central atom (Pb)
+    coordinating_atoms : list
+        List of dictionaries containing information about the coordinating atoms (I)
+        Each dictionary should have a 'coordinates' key with (x, y, z) values
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing volume calculations and related information
+    """
+    from itertools import combinations
+    
+    # Extract coordinates
+    center = central_atom_coords
+    coords = [atom['coordinates'] for atom in coordinating_atoms]
+    
+    # Helper functions to replace numpy operations
+    def vector_subtract(v1, v2):
+        return (v1[0] - v2[0], v1[1] - v2[1], v1[2] - v2[2])
+    
+    def vector_add(v1, v2):
+        return (v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2])
+    
+    def vector_scale(v, scalar):
+        return (v[0] * scalar, v[1] * scalar, v[2] * scalar)
+    
+    def vector_cross(v1, v2):
+        return (
+            v1[1] * v2[2] - v1[2] * v2[1],
+            v1[2] * v2[0] - v1[0] * v2[2],
+            v1[0] * v2[1] - v1[1] * v2[0]
+        )
+    
+    def vector_dot(v1, v2):
+        return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]
+    
+    def det_3x3(matrix):
+        # Calculate determinant of 3x3 matrix
+        a, b, c = matrix
+        return (
+            a[0] * (b[1] * c[2] - b[2] * c[1]) -
+            a[1] * (b[0] * c[2] - b[2] * c[0]) +
+            a[2] * (b[0] * c[1] - b[1] * c[0])
+        )
+    
+    # Calculate volume of each tetrahedron and sum
+    total_volume = 0
+    tetrahedra_volumes = []
+    face_indices = []
+    
+    # Find all possible faces (combinations of 3 vertices)
+    for face_combo in combinations(range(6), 3):
+        i, j, k = face_combo
+        
+        # Get the three points that might form a face
+        a, b, c = coords[i], coords[j], coords[k]
+        
+        # Calculate normal vector of the potential face
+        ab = vector_subtract(b, a)
+        ac = vector_subtract(c, a)
+        normal = vector_cross(ab, ac)
+        
+        # Calculate centroid of the face
+        sum_points = vector_add(vector_add(a, b), c)
+        face_centroid = vector_scale(sum_points, 1/3)
+        
+        # Vector from central atom to face centroid
+        center_to_face = vector_subtract(face_centroid, center)
+        
+        # Check if this is an outward-facing face
+        if vector_dot(normal, center_to_face) > 0:
+            face_indices.append(face_combo)
+            
+            # Calculate tetrahedron volume
+            # V = (1/6) * |det(a-center, b-center, c-center)|
+            matrix = [
+                vector_subtract(a, center),
+                vector_subtract(b, center),
+                vector_subtract(c, center)
+            ]
+            volume = abs(det_3x3(matrix)) / 6
+            
+            tetrahedra_volumes.append(volume)
+            total_volume += volume
+    
+    # For data collection and validation
+    face_coordinates = []
+    for face in face_indices:
+        face_coordinates.append([coords[i] for i in face])
+    
+    return {
+        'total_volume': total_volume,
+        'tetrahedra_volumes': tetrahedra_volumes,
+        'number_of_tetrahedra': len(tetrahedra_volumes),
+        'face_indices': face_indices
+    }
+
+
+
 # @dev function to find out DI from neighbouring I atom 
 def calculate_distortion_index(central_pb_coords, nearest_i_atoms):
     """
@@ -246,21 +353,30 @@ def main(xyz_file_path='vesta_file.xyz'):
                 print("\nCalculating Distortion Index...")
                 distortion_results = calculate_distortion_index(central_pb_coords, nearest_I)
                 
+                # Calculate polyhedral (octahedral) volume
+                print("\nCalculating Polyhedral Volume...")
+                volume_results = calculate_octahedral_volume(central_pb_coords, nearest_I)
+                
                 # Display results
                 print("\nDistortion Index Results:")
                 print(f"Bond lengths (Pb-I): {[f'{bl:.6f}' for bl in distortion_results['bond_lengths']]}")
                 print(f"Average bond length (lav): {distortion_results['average_bond_length']:.6f}")
                 print(f"Normalized deviations (|li-lav|/lav): {[f'{ad:.6f}' for ad in distortion_results['absolute_deviations']]}")
                 print(f"\nDistortion Index (D): {distortion_results['distortion_index']:.6f}")
+                
+                print("\nPolyhedral Volume Results:")
+                print(f"Total Octahedral Volume: {volume_results['total_volume']:.6f} Å³")
+                print(f"Number of tetrahedra used: {volume_results['number_of_tetrahedra']}")
+                print(f"Individual tetrahedra volumes: {[f'{v:.6f}' for v in volume_results['tetrahedra_volumes']]}")
             else:
-                print("Could not find enough I atoms to calculate distortion index")
+                print("Could not find enough I atoms to calculate distortion index and polyhedral volume")
         else:
             print("No results found from coordinate calculation")
     except Exception as e:
         print(f"An error occurred: {e}")
         import traceback
         traceback.print_exc()
-        
+
 # Run the main function when the script is executed
 if __name__ == "__main__":
     main()
