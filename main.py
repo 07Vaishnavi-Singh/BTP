@@ -19,6 +19,61 @@ def parse_xyz_file(filepath):
     
     return atoms, coordinates
 
+# @dev function to find out DI from neighbouring I atom 
+def calculate_distortion_index(central_pb_coords, nearest_i_atoms):
+    """
+    Calculate the distortion index (D) based on Baur's formula
+    
+    Parameters:
+    -----------
+    central_pb_coords : tuple
+        (x, y, z) coordinates of the central Pb atom
+    nearest_i_atoms : list
+        List of dictionaries containing information about the nearest I atoms
+        Each dictionary should have a 'coordinates' key with (x, y, z) values
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing distortion index and related calculations
+    """
+    n = len(nearest_i_atoms)  # Number of coordinating atoms (I)
+    
+    # Calculate individual bond lengths (li)
+    bond_lengths = []
+    pb_x, pb_y, pb_z = central_pb_coords
+    
+    for iodine in nearest_i_atoms:
+        i_x, i_y, i_z = iodine['coordinates']
+        
+        # Distance from Pb to I (bond length)
+        li = ((i_x - pb_x)**2 + (i_y - pb_y)**2 + (i_z - pb_z)**2)**0.5
+        bond_lengths.append(li)
+    
+    # Calculate average bond length (lav)
+    lav = sum(bond_lengths) / n
+    
+    # Calculate individual deviations and their absolute values
+    deviations = []
+    abs_deviations = []
+    
+    for li in bond_lengths:
+        dev = (li - lav) / lav  # Normalized deviation
+        deviations.append(dev)
+        abs_deviations.append(abs(dev))  # Take absolute value
+    
+    # Calculate distortion index D
+    distortion_index = sum(abs_deviations) / n
+    
+    return {
+        'bond_lengths': bond_lengths,
+        'average_bond_length': lav,
+        'deviations': deviations,
+        'absolute_deviations': abs_deviations,
+        'distortion_index': distortion_index
+    }
+
+
 # @dev function to find the 6 nearest I atoms to the centre Pb atom 
 def find_nearest_I_atoms(central_pb_coords, atoms, coordinates, num_neighbors=6):
     """
@@ -129,10 +184,12 @@ def find_nearest_pb_atom(center_coords, atoms, coordinates):
     return None
 
 
-def main():
+def main(xyz_file_path='vesta_file.xyz'):
     try:
         # Parse the file
-        atoms, coordinates = parse_xyz_file('vesta_file.xyz')
+        print(f"Parsing XYZ file: {xyz_file_path}")
+        atoms, coordinates = parse_xyz_file(xyz_file_path)
+        print(f"Found {len(atoms)} atoms in the file")
         
         # Find the center atom
         result = find_center_atom(atoms, coordinates)
@@ -146,7 +203,17 @@ def main():
             print(f"Maximum distance to any other atom: {result['max_distance']:.6f}")
             print(f"Total atoms: {result['num_atoms']}")
             
-            if result['center_atom'] != "Pb":
+            # Determine which Pb atom to use and find the 6 nearest I atoms
+            nearest_I = None
+            central_pb_coords = None
+            
+            if result['center_atom'] == "Pb":
+                # The center atom is already Pb
+                central_pb_coords = result['center_coordinates']
+                print("\nCenter atom is already Pb. Finding 6 nearest I atoms...")
+                nearest_I = find_nearest_I_atoms(central_pb_coords, atoms, coordinates)
+            else:
+                # Need to find the nearest Pb atom
                 print(f"\nFinding nearest Pb atom to the center atom...")
                 nearest_pb = find_nearest_pb_atom(
                     result['center_coordinates'],
@@ -155,37 +222,46 @@ def main():
                 )
                 
                 if nearest_pb:
+                    central_pb_coords = nearest_pb['coordinates']
                     print("\nNearest Pb Atom Found:")
-                    pb_coords = nearest_pb['coordinates']
-                    print(f"Coordinates: X: {pb_coords[0]:.6f}, Y: {pb_coords[1]:.6f}, Z: {pb_coords[2]:.6f}")
+                    print(f"Coordinates: X: {central_pb_coords[0]:.6f}, Y: {central_pb_coords[1]:.6f}, Z: {central_pb_coords[2]:.6f}")
                     print(f"Distance from center atom: {nearest_pb['distance']:.6f}")
                     
                     # Find the 6 nearest I atoms to this Pb atom
-                    nearest_I = find_nearest_I_atoms(pb_coords, atoms, coordinates)
-                    
-                    print("\n6 Nearest I Atoms to Central Pb:")
-                    for i, iodine in enumerate(nearest_I, 1):
-                        i_coords = iodine['coordinates']
-                        print(f"{i}. I atom at X: {i_coords[0]:.6f}, Y: {i_coords[1]:.6f}, Z: {i_coords[2]:.6f}")
-                        print(f"   Distance from Pb: {iodine['distance']:.6f}")
-                    
+                    print("\nFinding 6 nearest I atoms to this Pb atom...")
+                    nearest_I = find_nearest_I_atoms(central_pb_coords, atoms, coordinates)
                 else:
                     print("No Pb atoms found in the structure")
-            else:
-                # The center atom is already Pb, find the 6 nearest I atoms to it
-                print("\nFinding 6 nearest I atoms to the central Pb atom...")
-                nearest_I = find_nearest_I_atoms(result['center_coordinates'], atoms, coordinates)
-                
+                    return
+            
+            # Display the 6 nearest I atoms
+            if nearest_I:
                 print("\n6 Nearest I Atoms to Central Pb:")
                 for i, iodine in enumerate(nearest_I, 1):
                     i_coords = iodine['coordinates']
                     print(f"{i}. I atom at X: {i_coords[0]:.6f}, Y: {i_coords[1]:.6f}, Z: {i_coords[2]:.6f}")
                     print(f"   Distance from Pb: {iodine['distance']:.6f}")
+                
+                # Calculate distortion index
+                print("\nCalculating Distortion Index...")
+                distortion_results = calculate_distortion_index(central_pb_coords, nearest_I)
+                
+                # Display results
+                print("\nDistortion Index Results:")
+                print(f"Bond lengths (Pb-I): {[f'{bl:.6f}' for bl in distortion_results['bond_lengths']]}")
+                print(f"Average bond length (lav): {distortion_results['average_bond_length']:.6f}")
+                print(f"Normalized deviations (|li-lav|/lav): {[f'{ad:.6f}' for ad in distortion_results['absolute_deviations']]}")
+                print(f"\nDistortion Index (D): {distortion_results['distortion_index']:.6f}")
+            else:
+                print("Could not find enough I atoms to calculate distortion index")
         else:
             print("No results found from coordinate calculation")
     except Exception as e:
         print(f"An error occurred: {e}")
-
+        import traceback
+        traceback.print_exc()
+        
 # Run the main function when the script is executed
 if __name__ == "__main__":
     main()
+
