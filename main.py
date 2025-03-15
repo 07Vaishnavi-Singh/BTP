@@ -22,14 +22,15 @@ def parse_xyz_file(filepath):
 # @dev fucntion to calcualte the volume of octahedral 
 def calculate_octahedral_volume(central_atom_coords, coordinating_atoms):
     """
-    Calculate the volume of an octahedron by decomposing it into tetrahedra
+    Calculate the volume of an octahedron by decomposing it into 8 tetrahedra
+    Each tetrahedron is formed by a triangular face and the central Pb atom
     
     Parameters:
     -----------
     central_atom_coords : tuple
         (x, y, z) coordinates of the central atom (Pb)
     coordinating_atoms : list
-        List of dictionaries containing information about the coordinating atoms (I)
+        List of dictionaries containing information about the 6 I atoms
         Each dictionary should have a 'coordinates' key with (x, y, z) values
         
     Returns:
@@ -39,29 +40,13 @@ def calculate_octahedral_volume(central_atom_coords, coordinating_atoms):
     """
     from itertools import combinations
     
-    # Extract coordinates
-    center = central_atom_coords
-    coords = [atom['coordinates'] for atom in coordinating_atoms]
+    # Verify we have exactly 6 coordinating atoms
+    if len(coordinating_atoms) != 6:
+        raise ValueError(f"Expected 6 coordinating atoms, got {len(coordinating_atoms)}")
     
-    # Helper functions to replace numpy operations
+    # Helper functions for vector operations
     def vector_subtract(v1, v2):
         return (v1[0] - v2[0], v1[1] - v2[1], v1[2] - v2[2])
-    
-    def vector_add(v1, v2):
-        return (v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2])
-    
-    def vector_scale(v, scalar):
-        return (v[0] * scalar, v[1] * scalar, v[2] * scalar)
-    
-    def vector_cross(v1, v2):
-        return (
-            v1[1] * v2[2] - v1[2] * v2[1],
-            v1[2] * v2[0] - v1[0] * v2[2],
-            v1[0] * v2[1] - v1[1] * v2[0]
-        )
-    
-    def vector_dot(v1, v2):
-        return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]
     
     def det_3x3(matrix):
         # Calculate determinant of 3x3 matrix
@@ -72,50 +57,75 @@ def calculate_octahedral_volume(central_atom_coords, coordinating_atoms):
             a[2] * (b[0] * c[1] - b[1] * c[0])
         )
     
-    # Calculate volume of each tetrahedron and sum
-    total_volume = 0
+    def calculate_tetrahedron_volume(p1, p2, p3, p4):
+        """
+        Calculate volume of a tetrahedron given 4 points
+        Volume = |(a-d)·((b-d)×(c-d))| / 6
+        where a,b,c are three points forming a face and d is the fourth point
+        """
+        # Create vectors from point 4 to other points
+        v1 = vector_subtract(p1, p4)
+        v2 = vector_subtract(p2, p4)
+        v3 = vector_subtract(p3, p4)
+        
+        # Calculate determinant (which gives 6 times the volume)
+        matrix = [v1, v2, v3]
+        volume = abs(det_3x3(matrix)) / 6
+        return volume
+    
+    # Get coordinates of all I atoms
+    i_coords = [atom['coordinates'] for atom in coordinating_atoms]
+    
+    # Find all triangular faces of the octahedron
+    # We'll use combinations of 3 vertices and validate each as a face
     tetrahedra_volumes = []
     face_indices = []
+    total_volume = 0
     
-    # Find all possible faces (combinations of 3 vertices)
-    for face_combo in combinations(range(6), 3):
-        i, j, k = face_combo
+    # Helper function to check if three points form a valid face
+    def is_valid_face(p1_idx, p2_idx, p3_idx, all_points):
+        """Check if three points form a valid face of the octahedron"""
+        # In a valid face, all other points should be on the same side of the plane
+        p1, p2, p3 = [all_points[i] for i in (p1_idx, p2_idx, p3_idx)]
         
-        # Get the three points that might form a face
-        a, b, c = coords[i], coords[j], coords[k]
+        # Calculate normal vector of the face
+        v1 = vector_subtract(p2, p1)
+        v2 = vector_subtract(p3, p1)
         
-        # Calculate normal vector of the potential face
-        ab = vector_subtract(b, a)
-        ac = vector_subtract(c, a)
-        normal = vector_cross(ab, ac)
+        # Cross product gives normal vector
+        nx = v1[1]*v2[2] - v1[2]*v2[1]
+        ny = v1[2]*v2[0] - v1[0]*v2[2]
+        nz = v1[0]*v2[1] - v1[1]*v2[0]
         
-        # Calculate centroid of the face
-        sum_points = vector_add(vector_add(a, b), c)
-        face_centroid = vector_scale(sum_points, 1/3)
-        
-        # Vector from central atom to face centroid
-        center_to_face = vector_subtract(face_centroid, center)
-        
-        # Check if this is an outward-facing face
-        if vector_dot(normal, center_to_face) > 0:
-            face_indices.append(face_combo)
-            
-            # Calculate tetrahedron volume
-            # V = (1/6) * |det(a-center, b-center, c-center)|
-            matrix = [
-                vector_subtract(a, center),
-                vector_subtract(b, center),
-                vector_subtract(c, center)
-            ]
-            volume = abs(det_3x3(matrix)) / 6
+        # Check if all other points are on the same side of the plane
+        sign = None
+        for i, p in enumerate(all_points):
+            if i not in (p1_idx, p2_idx, p3_idx):
+                # Vector from p1 to current point
+                v = vector_subtract(p, p1)
+                # Dot product with normal vector
+                dot = nx*v[0] + ny*v[1] + nz*v[2]
+                
+                if sign is None:
+                    sign = dot > 0
+                elif (dot > 0) != sign:
+                    return False
+        return True
+    
+    # Find all valid faces and calculate tetrahedra volumes
+    for face in combinations(range(6), 3):
+        if is_valid_face(face[0], face[1], face[2], i_coords):
+            # Calculate volume of tetrahedron formed by this face and center point
+            volume = calculate_tetrahedron_volume(
+                i_coords[face[0]],
+                i_coords[face[1]],
+                i_coords[face[2]],
+                central_atom_coords
+            )
             
             tetrahedra_volumes.append(volume)
+            face_indices.append(face)
             total_volume += volume
-    
-    # For data collection and validation
-    face_coordinates = []
-    for face in face_indices:
-        face_coordinates.append([coords[i] for i in face])
     
     return {
         'total_volume': total_volume,
@@ -184,7 +194,7 @@ def calculate_distortion_index(central_pb_coords, nearest_i_atoms):
 # @dev function to find the 6 nearest I atoms to the centre Pb atom 
 def find_nearest_I_atoms(central_pb_coords, atoms, coordinates, num_neighbors=6):
     """
-    Find the nearest I (iodine) atoms to the central Pb atom
+    Find the 6 nearest I atoms that form an octahedral arrangement around the central Pb atom
     
     Parameters:
     -----------
@@ -200,31 +210,105 @@ def find_nearest_I_atoms(central_pb_coords, atoms, coordinates, num_neighbors=6)
     Returns:
     --------
     list
-        List of dictionaries containing information about the nearest I atoms
+        List of dictionaries containing information about the nearest I atoms in octahedral arrangement
     """
-    # Calculate distances from central Pb to all I atoms
+    import math  # Add this import at the start of the function
+    
     distances = []
     central_x, central_y, central_z = central_pb_coords
+    MAX_PB_I_DISTANCE = 4.0  # Maximum reasonable Pb-I bond distance
     
+    # First, collect all nearby I atoms
     for i in range(len(atoms)):
-        if atoms[i] == 'I':  # Only consider I atoms
+        if atoms[i] == 'I':
             x, y, z = coordinates[i]
             distance = ((x - central_x)**2 + 
                        (y - central_y)**2 + 
                        (z - central_z)**2)**0.5
             
-            distances.append({
-                'index': i,
-                'atom': atoms[i],
-                'coordinates': coordinates[i],
-                'distance': distance
-            })
+            if distance <= MAX_PB_I_DISTANCE:
+                # Calculate directional vector from Pb to I
+                direction = (
+                    (x - central_x) / distance,
+                    (y - central_y) / distance,
+                    (z - central_z) / distance
+                )
+                
+                distances.append({
+                    'index': i,
+                    'atom': atoms[i],
+                    'coordinates': coordinates[i],
+                    'distance': distance,
+                    'direction': direction,
+                    'atom_index': i + 1  # Adding 1 because file starts from line 3
+                })
     
-    # Sort by distance
+    if len(distances) < 6:
+        raise ValueError(f"Only found {len(distances)} I atoms within {MAX_PB_I_DISTANCE} Å. Need 6 for octahedral arrangement.")
+    
+    # Sort by distance initially
     distances.sort(key=lambda x: x['distance'])
     
-    # Return the num_neighbors nearest I atoms
-    return distances[:num_neighbors]
+    # Function to calculate angle between two vectors
+    def angle_between(v1, v2):
+        dot_product = sum(a * b for a, b in zip(v1, v2))
+        # Clamp dot product to [-1, 1] to avoid floating point errors
+        dot_product = max(-1.0, min(1.0, dot_product))
+        return abs(180 * math.acos(dot_product) / math.pi)
+    
+    # Function to check if two atoms are approximately opposite (180 degrees)
+    def are_opposite(atom1, atom2, tolerance=20):  # tolerance in degrees
+        angle = angle_between(atom1['direction'], atom2['direction'])
+        return abs(angle - 180) < tolerance
+    
+    # Function to check if two atoms are approximately perpendicular (90 degrees)
+    def are_perpendicular(atom1, atom2, tolerance=20):  # tolerance in degrees
+        angle = angle_between(atom1['direction'], atom2['direction'])
+        return abs(angle - 90) < tolerance
+    
+    # Find best octahedral arrangement
+    best_octahedral = []
+    min_deviation = float('inf')
+    
+    # Try each of the closest atoms as the first axis
+    for i in range(min(10, len(distances))):  # Check first 10 closest atoms
+        for j in range(i + 1, min(11, len(distances))):
+            if are_opposite(distances[i], distances[j]):
+                # Found potential axis, now look for 4 atoms perpendicular to this axis
+                axis_atoms = [distances[i], distances[j]]
+                perpendicular_candidates = []
+                
+                for k in range(len(distances)):
+                    if k != i and k != j:
+                        atom = distances[k]
+                        if all(are_perpendicular(atom, axis_atom) for axis_atom in axis_atoms):
+                            perpendicular_candidates.append(atom)
+                
+                # If we found at least 4 perpendicular candidates
+                if len(perpendicular_candidates) >= 4:
+                    # Sort perpendicular candidates by distance
+                    perpendicular_candidates.sort(key=lambda x: x['distance'])
+                    current_arrangement = axis_atoms + perpendicular_candidates[:4]
+                    
+                    # Calculate deviation from ideal octahedral angles
+                    total_deviation = 0
+                    for a1 in range(6):
+                        for a2 in range(a1 + 1, 6):
+                            angle = angle_between(
+                                current_arrangement[a1]['direction'],
+                                current_arrangement[a2]['direction']
+                            )
+                            # In perfect octahedron, angles should be either 90 or 180 degrees
+                            total_deviation += min(abs(angle - 90), abs(angle - 180))
+                    
+                    if total_deviation < min_deviation:
+                        min_deviation = total_deviation
+                        best_octahedral = current_arrangement
+    
+    if not best_octahedral:
+        raise ValueError("Could not find suitable octahedral arrangement of I atoms")
+    
+    return best_octahedral
 
 
 def find_center_atom(atoms, coordinates):
@@ -260,7 +344,8 @@ def find_center_atom(atoms, coordinates):
             'center_atom': atoms[center_atom_index],
             'center_coordinates': coordinates[center_atom_index],
             'max_distance': min_max_distance,
-            'num_atoms': num_atoms
+            'num_atoms': num_atoms,
+            'atom_index': center_atom_index + 1  # Adding 1 because file starts from line 3
         }
     return None
 
@@ -286,10 +371,83 @@ def find_nearest_pb_atom(center_coords, atoms, coordinates):
         return {
             'atom': atoms[nearest_pb_index],
             'coordinates': coordinates[nearest_pb_index],
-            'distance': min_distance
+            'distance': min_distance,
+            'atom_index': nearest_pb_index + 1  # Adding 1 because file starts from line 3
         }
     return None
 
+def calculate_octahedral_edges(central_atom_coords, coordinating_atoms):
+    """
+    Calculate the average edge length of the octahedron formed by Pb and 6 I atoms
+    
+    Parameters:
+    -----------
+    central_atom_coords : tuple
+        (x, y, z) coordinates of the central atom (Pb)
+    coordinating_atoms : list
+        List of dictionaries containing information about the 6 I atoms
+        Each dictionary should have a 'coordinates' key with (x, y, z) values
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing edge length calculations and statistics
+    """
+    from itertools import combinations
+    
+    # Verify we have exactly 6 coordinating atoms
+    if len(coordinating_atoms) != 6:
+        raise ValueError(f"Expected 6 coordinating atoms, got {len(coordinating_atoms)}")
+    
+    def calculate_distance(p1, p2):
+        """Calculate Euclidean distance between two points"""
+        return ((p2[0] - p1[0])**2 + 
+                (p2[1] - p1[1])**2 + 
+                (p2[2] - p1[2])**2)**0.5
+    
+    # Get coordinates of all I atoms
+    i_coords = [atom['coordinates'] for atom in coordinating_atoms]
+    
+    # Calculate all edge lengths
+    edge_lengths = []
+    edge_details = []  # Store which atoms form each edge
+    
+    # Calculate edges between I atoms (8 edges)
+    for i, j in combinations(range(6), 2):
+        length = calculate_distance(i_coords[i], i_coords[j])
+        # Only consider edges that could reasonably form the octahedron
+        # (exclude edges that would cross through the center)
+        edge_details.append({
+            'atom1_index': coordinating_atoms[i]['atom_index'],
+            'atom2_index': coordinating_atoms[j]['atom_index'],
+            'length': length,
+            'type': 'I-I'
+        })
+        edge_lengths.append(length)
+    
+    # Calculate edges from central Pb to each I (6 edges)
+    for i, coord in enumerate(i_coords):
+        length = calculate_distance(central_atom_coords, coord)
+        edge_details.append({
+            'atom1_index': 'Pb',
+            'atom2_index': coordinating_atoms[i]['atom_index'],
+            'length': length,
+            'type': 'Pb-I'
+        })
+        edge_lengths.append(length)
+    
+    # Calculate statistics
+    avg_edge_length = sum(edge_lengths) / len(edge_lengths)
+    min_edge_length = min(edge_lengths)
+    max_edge_length = max(edge_lengths)
+    
+    return {
+        'average_edge_length': avg_edge_length,
+        'min_edge_length': min_edge_length,
+        'max_edge_length': max_edge_length,
+        'edge_details': edge_details,
+        'number_of_edges': len(edge_lengths)
+    }
 
 def main(xyz_file_path='vesta_file.xyz'):
     try:
@@ -304,6 +462,7 @@ def main(xyz_file_path='vesta_file.xyz'):
         if result:
             print("\nCenter Atom Analysis:")
             print(f"Center atom type: {result['center_atom']}")
+            print(f"Center atom line number in file: {result['atom_index'] + 2}")  # +2 because atoms start from line 3
             print(f"Center coordinates: X: {result['center_coordinates'][0]:.6f}, "
                   f"Y: {result['center_coordinates'][1]:.6f}, "
                   f"Z: {result['center_coordinates'][2]:.6f}")
@@ -331,6 +490,7 @@ def main(xyz_file_path='vesta_file.xyz'):
                 if nearest_pb:
                     central_pb_coords = nearest_pb['coordinates']
                     print("\nNearest Pb Atom Found:")
+                    print(f"Pb atom line number in file: {nearest_pb['atom_index'] + 2}")  # +2 because atoms start from line 3
                     print(f"Coordinates: X: {central_pb_coords[0]:.6f}, Y: {central_pb_coords[1]:.6f}, Z: {central_pb_coords[2]:.6f}")
                     print(f"Distance from center atom: {nearest_pb['distance']:.6f}")
                     
@@ -346,7 +506,8 @@ def main(xyz_file_path='vesta_file.xyz'):
                 print("\n6 Nearest I Atoms to Central Pb:")
                 for i, iodine in enumerate(nearest_I, 1):
                     i_coords = iodine['coordinates']
-                    print(f"{i}. I atom at X: {i_coords[0]:.6f}, Y: {i_coords[1]:.6f}, Z: {i_coords[2]:.6f}")
+                    print(f"{i}. I atom at line number {iodine['atom_index'] + 2} in file")  # +2 because atoms start from line 3
+                    print(f"   Coordinates: X: {i_coords[0]:.6f}, Y: {i_coords[1]:.6f}, Z: {i_coords[2]:.6f}")
                     print(f"   Distance from Pb: {iodine['distance']:.6f}")
                 
                 # Calculate distortion index
@@ -356,6 +517,10 @@ def main(xyz_file_path='vesta_file.xyz'):
                 # Calculate polyhedral (octahedral) volume
                 print("\nCalculating Polyhedral Volume...")
                 volume_results = calculate_octahedral_volume(central_pb_coords, nearest_I)
+                
+                # Calculate edge lengths
+                print("\nCalculating Octahedral Edge Lengths...")
+                edge_results = calculate_octahedral_edges(central_pb_coords, nearest_I)
                 
                 # Display results
                 print("\nDistortion Index Results:")
@@ -368,6 +533,24 @@ def main(xyz_file_path='vesta_file.xyz'):
                 print(f"Total Octahedral Volume: {volume_results['total_volume']:.6f} Å³")
                 print(f"Number of tetrahedra used: {volume_results['number_of_tetrahedra']}")
                 print(f"Individual tetrahedra volumes: {[f'{v:.6f}' for v in volume_results['tetrahedra_volumes']]}")
+                
+                print("\nEdge Length Results:")
+                print(f"Average edge length: {edge_results['average_edge_length']:.6f} Å")
+                print(f"Minimum edge length: {edge_results['min_edge_length']:.6f} Å")
+                print(f"Maximum edge length: {edge_results['max_edge_length']:.6f} Å")
+                print(f"Total number of edges: {edge_results['number_of_edges']}")
+                
+                # Display edge length results in a more readable format
+                print("\nDetailed Edge Information:")
+                print("\nPb-I bonds:")
+                for edge in edge_results['edge_details']:
+                    if edge['type'] == 'Pb-I':
+                        print(f"Pb to I(line {edge['atom2_index'] + 2}): {edge['length']:.6f} Å")
+                
+                print("\nI-I edges:")
+                for edge in edge_results['edge_details']:
+                    if edge['type'] == 'I-I':
+                        print(f"I(line {edge['atom1_index'] + 2}) to I(line {edge['atom2_index'] + 2}): {edge['length']:.6f} Å")
             else:
                 print("Could not find enough I atoms to calculate distortion index and polyhedral volume")
         else:
