@@ -534,32 +534,140 @@ def calculate_quadratic_elongation(central_atom_coords, coordinating_atoms, poly
     def calculate_distance(p1, p2):
         return math.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2)))
     
-    # Calculate center-to-vertex distances for actual polyhedron
-    center_to_vertex_distances = []
-    for atom in coordinating_atoms:
-        distance = calculate_distance(central_atom_coords, atom['coordinates'])
-        center_to_vertex_distances.append(distance)
-    
-    # Calculate mean bond length
-    mean_bond_length = sum(center_to_vertex_distances) / len(center_to_vertex_distances)
-    
-    # For octahedron
-    if polyhedron_type == 'octahedron':
-        # Use direct formula for octahedron
-        # In a regular octahedron, all bond lengths are equal to l0
-        # So we calculate quadratic elongation using average bond length
-        quad_elongation = sum((li / mean_bond_length)**2 for li in center_to_vertex_distances) / len(center_to_vertex_distances)
+    # Helper function to calculate volume of the polyhedron
+    def calculate_polyhedron_volume(central_coords, vertex_coords, poly_type):
+        if poly_type == 'octahedron':
+            # For octahedron, use the existing function from calculate_octahedral_volume
+            from itertools import combinations
+            
+            # Helper functions for vector operations
+            def vector_subtract(v1, v2):
+                return (v1[0] - v2[0], v1[1] - v2[1], v1[2] - v2[2])
+            
+            def det_3x3(matrix):
+                # Calculate determinant of 3x3 matrix
+                a, b, c = matrix
+                return (
+                    a[0] * (b[1] * c[2] - b[2] * c[1]) -
+                    a[1] * (b[0] * c[2] - b[2] * c[0]) +
+                    a[2] * (b[0] * c[1] - b[1] * c[0])
+                )
+            
+            def calculate_tetrahedron_volume(p1, p2, p3, p4):
+                """
+                Calculate volume of a tetrahedron given 4 points
+                Volume = |(a-d)·((b-d)×(c-d))| / 6
+                where a,b,c are three points forming a face and d is the fourth point
+                """
+                # Create vectors from point 4 to other points
+                v1 = vector_subtract(p1, p4)
+                v2 = vector_subtract(p2, p4)
+                v3 = vector_subtract(p3, p4)
+                
+                # Calculate determinant (which gives 6 times the volume)
+                matrix = [v1, v2, v3]
+                volume = abs(det_3x3(matrix)) / 6
+                return volume
+            
+            # Helper function to check if three points form a valid face
+            def is_valid_face(p1_idx, p2_idx, p3_idx, all_points):
+                """Check if three points form a valid face of the octahedron"""
+                # In a valid face, all other points should be on the same side of the plane
+                p1, p2, p3 = [all_points[i] for i in (p1_idx, p2_idx, p3_idx)]
+                
+                # Calculate normal vector of the face
+                v1 = vector_subtract(p2, p1)
+                v2 = vector_subtract(p3, p1)
+                
+                # Cross product gives normal vector
+                nx = v1[1]*v2[2] - v1[2]*v2[1]
+                ny = v1[2]*v2[0] - v1[0]*v2[2]
+                nz = v1[0]*v2[1] - v1[1]*v2[0]
+                
+                # Check if all other points are on the same side of the plane
+                sign = None
+                for i, p in enumerate(all_points):
+                    if i not in (p1_idx, p2_idx, p3_idx):
+                        # Vector from p1 to current point
+                        v = vector_subtract(p, p1)
+                        # Dot product with normal vector
+                        dot = nx*v[0] + ny*v[1] + nz*v[2]
+                        
+                        if sign is None:
+                            sign = dot > 0
+                        elif (dot > 0) != sign:
+                            return False
+                return True
+            
+            # Find all valid faces and calculate tetrahedra volumes
+            tetrahedra_volumes = []
+            total_volume = 0
+            
+            for face in combinations(range(len(vertex_coords)), 3):
+                if is_valid_face(face[0], face[1], face[2], vertex_coords):
+                    # Calculate volume of tetrahedron formed by this face and center point
+                    volume = calculate_tetrahedron_volume(
+                        vertex_coords[face[0]],
+                        vertex_coords[face[1]],
+                        vertex_coords[face[2]],
+                        central_coords
+                    )
+                    
+                    tetrahedra_volumes.append(volume)
+                    total_volume += volume
+            
+            return total_volume
         
-        return {
-            'center_to_vertex_distances': center_to_vertex_distances,
-            'ideal_center_to_vertex_distance': mean_bond_length,
-            'mean_bond_length': mean_bond_length,
-            'quadratic_elongation': quad_elongation
-        }
+        else:
+            raise NotImplementedError(f"Volume calculation for {poly_type} not implemented")
+    
+    # Get coordinates of all vertices
+    vertices = [atom['coordinates'] for atom in coordinating_atoms]
+    
+    # Calculate actual distances from center to each vertex
+    distances = []
+    for vertex in vertices:
+        dist = calculate_distance(central_atom_coords, vertex)
+        distances.append(dist)
+    
+    # Get the number of vertices
+    n = len(distances)
+    
+    # Check if number of vertices matches the polyhedron type
+    expected_vertices = {
+        'tetrahedron': 4,
+        'octahedron': 6,
+        'cube': 8,
+        'dodecahedron': 12,
+        'icosahedron': 20
+    }
+    
+    if n != expected_vertices.get(polyhedron_type, 0):
+        raise ValueError(f"Expected {expected_vertices.get(polyhedron_type)} vertices for {polyhedron_type}, got {n}")
+    
+    # Calculate actual volume of the polyhedron
+    actual_volume = calculate_polyhedron_volume(central_atom_coords, vertices, polyhedron_type)
+    
+    # For a regular polyhedron of the specified type, calculate the constant relating
+    # volume to the center-to-vertex distance (l0^3)
+    # For octahedron: V = (sqrt(2)/3) * l0^3
+    # So l0 = (3V/sqrt(2))^(1/3)
+    
+    if polyhedron_type == 'octahedron':
+        # For octahedron, V = (sqrt(2)/3) * l0^3, so l0 = (3V/sqrt(2))^(1/3)
+        l0 = (3 * actual_volume / math.sqrt(2)) ** (1/3)
     else:
-        # For other polyhedra, a more complex calculation would be needed
-        # This is a simplified implementation
-        raise NotImplementedError(f"Quadratic elongation calculation for {polyhedron_type} not implemented")
+        raise NotImplementedError(f"l0 calculation for {polyhedron_type} not implemented")
+    
+    # Calculate quadratic elongation using equation 11.2
+    quad_elongation = sum((li / l0)**2 for li in distances) / n
+    
+    return {
+        'center_to_vertex_distances': distances,
+        'ideal_center_to_vertex_distance': l0,
+        'actual_volume': actual_volume,
+        'quadratic_elongation': quad_elongation
+    }
 
 def calculate_bond_angle_variance(central_atom_coords, coordinating_atoms, polyhedron_type='octahedron'):
     """
@@ -609,17 +717,25 @@ def calculate_bond_angle_variance(central_atom_coords, coordinating_atoms, polyh
         'tetrahedron': 109.47,  # 109°28'
         'octahedron': 90.0,
         'cube': 90.0,
-        'dodecahedron': [108.0, 116.57, 120.0],  # Depending on which face
-        'icosahedron': 108.0
+        'dodecahedron': 108.0,  # Simplified
+        'icosahedron': 108.0    # Simplified
     }
     
     if polyhedron_type not in ideal_bond_angles:
         raise ValueError(f"Unsupported polyhedron type: {polyhedron_type}")
     
-    # For simplicity, use the first ideal angle for polyhedra with multiple angles
-    phi0 = ideal_bond_angles[polyhedron_type]
-    if isinstance(phi0, list):
-        phi0 = phi0[0]  # Just use the first angle for simplicity
+    # Number of faces for different polyhedra
+    face_counts = {
+        'tetrahedron': 4,
+        'octahedron': 8,
+        'cube': 6,
+        'dodecahedron': 12,
+        'icosahedron': 20
+    }
+    
+    # Calculate number of bond angles based on the formula: m = (number of faces) * 3 / 2
+    # This is the theoretical number of angles in a regular polyhedron
+    theoretical_m = int(face_counts.get(polyhedron_type, 0) * 3 / 2)
     
     # Get coordinates of central atom and all vertices
     central = central_atom_coords
@@ -631,36 +747,48 @@ def calculate_bond_angle_variance(central_atom_coords, coordinating_atoms, polyh
         angle = calculate_angle(vertices[i], central, vertices[j])
         bond_angles.append(angle)
     
-    # For octahedron, we expect 12 bond angles (each of the 6 vertices connects to the central atom and 
-    # forms angles with the other 5 vertices, giving 6*5/2 = 15 angles)
-    # But in a perfect octahedron, some angles should be exactly 90° and others exactly 180°
+    # The actual number of calculated angles
+    m = len(bond_angles)
     
-    # Group angles into those that should be 90° and those that should be 180°
-    angles_near_90 = []
-    angles_near_180 = []
-    
-    for angle in bond_angles:
-        if abs(angle - 90) < abs(angle - 180):
-            angles_near_90.append(angle)
-        else:
-            angles_near_180.append(angle)
-    
-    # Calculate variance for the angles that should be 90°
-    variance_90 = sum((angle - 90.0)**2 for angle in angles_near_90) / len(angles_near_90) if angles_near_90 else 0
-    
-    # For octahedron, we only consider the 90-degree angles for the variance calculation
     if polyhedron_type == 'octahedron':
-        variance = variance_90
+        # For octahedron, we have 6 vertices and expect 12 bond angles
+        # (6 choose 2 = 15 potential angles, but 3 are approximately 180°)
+        
+        # In a perfect octahedron, 12 angles are 90° and 3 angles are 180°
+        # VESTA reference says we should only consider the 90° angles
+        # Group angles into those that should be 90° and those that should be 180°
+        angles_near_90 = []
+        angles_near_180 = []
+        
+        for angle in bond_angles:
+            if abs(angle - 90) < abs(angle - 180):
+                angles_near_90.append(angle)
+            else:
+                angles_near_180.append(angle)
+        
+        # Calculate bond angle variance according to equation 11.3
+        # Use m-1 as the divisor where m is the number of 90° angles
+        if len(angles_near_90) > 1:
+            variance = sum((angle - 90.0)**2 for angle in angles_near_90) / (len(angles_near_90) - 1)
+        else:
+            variance = 0
     else:
-        # For other polyhedra, use all angles
-        variance = sum((phi - phi0)**2 for phi in bond_angles) / len(bond_angles) if bond_angles else 0
+        # For other polyhedra, use all angles and the corresponding ideal angle
+        phi0 = ideal_bond_angles[polyhedron_type]
+        
+        # Use m-1 as the divisor where m is the number of angles
+        if m > 1:
+            variance = sum((phi - phi0)**2 for phi in bond_angles) / (m - 1)
+        else:
+            variance = 0
     
     return {
         'bond_angles': bond_angles,
-        'angles_near_90': angles_near_90,
-        'angles_near_180': angles_near_180,
-        'ideal_bond_angle': phi0,
-        'number_of_angles': len(bond_angles),
+        'angles_near_90': angles_near_90 if polyhedron_type == 'octahedron' else [],
+        'angles_near_180': angles_near_180 if polyhedron_type == 'octahedron' else [],
+        'ideal_bond_angle': ideal_bond_angles[polyhedron_type],
+        'theoretical_bond_angle_count': theoretical_m,
+        'actual_bond_angle_count': m,
         'bond_angle_variance': variance
     }
 
@@ -841,14 +969,21 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     
     print("\nQuadratic Elongation Results:")
     print(f"Center-to-vertex distances: {[f'{d:.6f}' for d in quad_elongation_results['center_to_vertex_distances']]}")
-    print(f"Mean bond length: {quad_elongation_results['mean_bond_length']:.6f} Å")
-    print(f"Quadratic elongation: {quad_elongation_results['quadratic_elongation']:.4f}")
+    print(f"Ideal center-to-vertex distance (l0): {quad_elongation_results['ideal_center_to_vertex_distance']:.6f} Å")
+    print(f"Actual polyhedron volume: {quad_elongation_results['actual_volume']:.6f} Å³")
+    print(f"Quadratic elongation <λ>: {quad_elongation_results['quadratic_elongation']:.6f}")
     
     print("\nBond Angle Variance Results:")
-    print(f"Number of angles: {bond_angle_variance_results['number_of_angles']}")
-    print(f"Number of ~90° angles: {len(bond_angle_variance_results['angles_near_90'])}")
-    print(f"Number of ~180° angles: {len(bond_angle_variance_results['angles_near_180'])}")
-    print(f"Bond angle variance: {bond_angle_variance_results['bond_angle_variance']:.4f} deg.²")
+    if bond_angle_variance_results['angles_near_90']:
+        print(f"Number of ~90° angles: {len(bond_angle_variance_results['angles_near_90'])}")
+        print(f"90° angles: {[f'{a:.6f}' for a in bond_angle_variance_results['angles_near_90']]}")
+    if bond_angle_variance_results['angles_near_180']:
+        print(f"Number of ~180° angles: {len(bond_angle_variance_results['angles_near_180'])}")
+        print(f"180° angles: {[f'{a:.6f}' for a in bond_angle_variance_results['angles_near_180']]}")
+    print(f"Theoretical number of bond angles (m): {bond_angle_variance_results['theoretical_bond_angle_count']}")
+    print(f"Actual number of bond angles: {bond_angle_variance_results['actual_bond_angle_count']}")
+    print(f"Ideal bond angle (φ0): {bond_angle_variance_results['ideal_bond_angle']:.6f}°")
+    print(f"Bond angle variance (σ²): {bond_angle_variance_results['bond_angle_variance']:.6f} deg.²")
     
     # Print a summary of key metrics
     print("\nSummary of Key Metrics:")
@@ -858,7 +993,7 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     print(f"Quadratic elongation = {quad_elongation_results['quadratic_elongation']:.4f}")
     print(f"Bond angle variance = {bond_angle_variance_results['bond_angle_variance']:7.4f} deg.^2")
     print(f"Effective coordination number = {econ_results['effective_coordination_number']:.4f}")
-        
+
 # Run the main function when the script is executed
 if __name__ == "__main__":
     import sys
