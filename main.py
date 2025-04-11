@@ -449,6 +449,342 @@ def calculate_octahedral_edges(central_atom_coords, coordinating_atoms):
         'number_of_edges': len(edge_lengths)
     }
 
+def calculate_effective_coordination_number(central_atom_coords, coordinating_atoms):
+    """
+    Calculate the Effective Coordination Number (ECoN) as defined in VESTA
+    
+    Parameters:
+    -----------
+    central_atom_coords : tuple
+        (x, y, z) coordinates of the central atom
+    coordinating_atoms : list
+        List of dictionaries containing information about the coordinating atoms
+        Each dictionary should have a 'coordinates' key with (x, y, z) values
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing ECoN and related calculations
+    """
+    import math
+    
+    # Helper function to calculate distance between two points
+    def calculate_distance(p1, p2):
+        return math.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2)))
+    
+    # Calculate bond lengths to all coordinating atoms
+    bond_lengths = []
+    for atom in coordinating_atoms:
+        distance = calculate_distance(central_atom_coords, atom['coordinates'])
+        bond_lengths.append(distance)
+    
+    # Find the minimum bond length
+    l_min = min(bond_lengths)
+    
+    # Calculate weighted average bond length (lav) using equation 11.6
+    numerator = 0
+    denominator = 0
+    for li in bond_lengths:
+        exp_factor = math.exp(1 - (li/l_min)**6)
+        numerator += li * exp_factor
+        denominator += exp_factor
+    
+    l_av = numerator / denominator if denominator != 0 else 0
+    
+    # Calculate bond weights and ECoN using equations 11.4 and 11.5
+    bond_weights = []
+    econ = 0
+    
+    for li in bond_lengths:
+        wi = math.exp(1 - (li/l_av)**6)
+        bond_weights.append(wi)
+        econ += wi
+    
+    return {
+        'bond_lengths': bond_lengths,
+        'minimum_bond_length': l_min,
+        'weighted_average_bond_length': l_av,
+        'bond_weights': bond_weights,
+        'effective_coordination_number': econ
+    }
+
+def calculate_quadratic_elongation(central_atom_coords, coordinating_atoms, polyhedron_type='octahedron'):
+    """
+    Calculate the quadratic elongation <λ> as defined in VESTA
+    
+    Parameters:
+    -----------
+    central_atom_coords : tuple
+        (x, y, z) coordinates of the central atom
+    coordinating_atoms : list
+        List of dictionaries containing information about the coordinating atoms
+        Each dictionary should have a 'coordinates' key with (x, y, z) values
+    polyhedron_type : str
+        Type of polyhedron ('tetrahedron', 'octahedron', 'cube', 'dodecahedron', 'icosahedron')
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing quadratic elongation and related calculations
+    """
+    import math
+    from itertools import combinations
+    
+    # Helper function to calculate distance between two points
+    def calculate_distance(p1, p2):
+        return math.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2)))
+    
+    # Helper function to calculate volume of a polyhedron
+    def calculate_polyhedron_volume(central_coords, vertex_coords, polyhedron_type):
+        if polyhedron_type == 'octahedron':
+            # For octahedron, use the existing function
+            from itertools import combinations
+            
+            # Helper functions for vector operations
+            def vector_subtract(v1, v2):
+                return (v1[0] - v2[0], v1[1] - v2[1], v1[2] - v2[2])
+            
+            def det_3x3(matrix):
+                # Calculate determinant of 3x3 matrix
+                a, b, c = matrix
+                return (
+                    a[0] * (b[1] * c[2] - b[2] * c[1]) -
+                    a[1] * (b[0] * c[2] - b[2] * c[0]) +
+                    a[2] * (b[0] * c[1] - b[1] * c[0])
+                )
+            
+            def calculate_tetrahedron_volume(p1, p2, p3, p4):
+                # Create vectors from point 4 to other points
+                v1 = vector_subtract(p1, p4)
+                v2 = vector_subtract(p2, p4)
+                v3 = vector_subtract(p3, p4)
+                
+                # Calculate determinant (which gives 6 times the volume)
+                matrix = [v1, v2, v3]
+                volume = abs(det_3x3(matrix)) / 6
+                return volume
+            
+            # Helper function to check if three points form a valid face
+            def is_valid_face(p1_idx, p2_idx, p3_idx, all_points):
+                # In a valid face, all other points should be on the same side of the plane
+                p1, p2, p3 = [all_points[i] for i in (p1_idx, p2_idx, p3_idx)]
+                
+                # Calculate normal vector of the face
+                v1 = vector_subtract(p2, p1)
+                v2 = vector_subtract(p3, p1)
+                
+                # Cross product gives normal vector
+                nx = v1[1]*v2[2] - v1[2]*v2[1]
+                ny = v1[2]*v2[0] - v1[0]*v2[2]
+                nz = v1[0]*v2[1] - v1[1]*v2[0]
+                
+                # Check if all other points are on the same side of the plane
+                sign = None
+                for i, p in enumerate(all_points):
+                    if i not in (p1_idx, p2_idx, p3_idx):
+                        # Vector from p1 to current point
+                        v = vector_subtract(p, p1)
+                        # Dot product with normal vector
+                        dot = nx*v[0] + ny*v[1] + nz*v[2]
+                        
+                        if sign is None:
+                            sign = dot > 0
+                        elif (dot > 0) != sign:
+                            return False
+                return True
+            
+            # Find all valid faces and calculate tetrahedra volumes
+            total_volume = 0
+            for face in combinations(range(len(vertex_coords)), 3):
+                if is_valid_face(face[0], face[1], face[2], vertex_coords):
+                    # Calculate volume of tetrahedron formed by this face and center point
+                    volume = calculate_tetrahedron_volume(
+                        vertex_coords[face[0]],
+                        vertex_coords[face[1]],
+                        vertex_coords[face[2]],
+                        central_coords
+                    )
+                    total_volume += volume
+            
+            return total_volume
+        
+        elif polyhedron_type == 'tetrahedron':
+            # For tetrahedron, use single tetrahedron volume calculation
+            if len(vertex_coords) != 4:
+                raise ValueError(f"Expected 4 vertices for tetrahedron, got {len(vertex_coords)}")
+            
+            # Helper functions
+            def vector_subtract(v1, v2):
+                return (v1[0] - v2[0], v1[1] - v2[1], v1[2] - v2[2])
+            
+            def det_3x3(matrix):
+                a, b, c = matrix
+                return (
+                    a[0] * (b[1] * c[2] - b[2] * c[1]) -
+                    a[1] * (b[0] * c[2] - b[2] * c[0]) +
+                    a[2] * (b[0] * c[1] - b[1] * c[0])
+                )
+            
+            # Create vectors from one vertex to other vertices
+            v1 = vector_subtract(vertex_coords[1], vertex_coords[0])
+            v2 = vector_subtract(vertex_coords[2], vertex_coords[0])
+            v3 = vector_subtract(vertex_coords[3], vertex_coords[0])
+            
+            # Calculate volume using determinant
+            matrix = [v1, v2, v3]
+            volume = abs(det_3x3(matrix)) / 6
+            return volume
+        
+        else:
+            # For other polyhedra, a more complex calculation would be needed
+            # This is a simplified implementation
+            raise NotImplementedError(f"Volume calculation for {polyhedron_type} not implemented")
+    
+    # Calculate center-to-vertex distances for actual polyhedron
+    center_to_vertex_distances = []
+    for atom in coordinating_atoms:
+        distance = calculate_distance(central_atom_coords, atom['coordinates'])
+        center_to_vertex_distances.append(distance)
+    
+    # Get the number of vertices
+    n = len(coordinating_atoms)
+    
+    # Verify we have the correct number of vertices for the polyhedron type
+    vertex_counts = {
+        'tetrahedron': 4,
+        'octahedron': 6,
+        'cube': 8,
+        'dodecahedron': 12,
+        'icosahedron': 20
+    }
+    
+    if n != vertex_counts.get(polyhedron_type, 0):
+        raise ValueError(f"Expected {vertex_counts.get(polyhedron_type)} vertices for {polyhedron_type}, got {n}")
+    
+    # Get coordinates of all vertices
+    vertex_coords = [atom['coordinates'] for atom in coordinating_atoms]
+    
+    # Calculate volume of the actual polyhedron
+    actual_volume = calculate_polyhedron_volume(central_atom_coords, vertex_coords, polyhedron_type)
+    
+    # Calculate l0 (center-to-vertex distance of a regular polyhedron with the same volume)
+    # For regular polyhedra, volume = k * l0^3 where k is a constant specific to the polyhedron type
+    volume_constants = {
+        'tetrahedron': 1/6 * math.sqrt(2),
+        'octahedron': 1/3 * math.sqrt(2),
+        'cube': 1,
+        'dodecahedron': (15 + 7*math.sqrt(5))/4,
+        'icosahedron': (5/12) * (3 + math.sqrt(5)) * math.sqrt(3)
+    }
+    
+    k = volume_constants.get(polyhedron_type)
+    if k is None:
+        raise ValueError(f"Unsupported polyhedron type: {polyhedron_type}")
+    
+    l0 = (actual_volume / k) ** (1/3)
+    
+    # Calculate quadratic elongation using equation 11.2
+    quad_elongation = sum((li / l0)**2 for li in center_to_vertex_distances) / n
+    
+    return {
+        'center_to_vertex_distances': center_to_vertex_distances,
+        'ideal_center_to_vertex_distance': l0,
+        'actual_volume': actual_volume,
+        'quadratic_elongation': quad_elongation
+    }
+
+def calculate_bond_angle_variance(central_atom_coords, coordinating_atoms, polyhedron_type='octahedron'):
+    """
+    Calculate the bond angle variance (σ²) as defined in VESTA
+    
+    Parameters:
+    -----------
+    central_atom_coords : tuple
+        (x, y, z) coordinates of the central atom
+    coordinating_atoms : list
+        List of dictionaries containing information about the coordinating atoms
+        Each dictionary should have a 'coordinates' key with (x, y, z) values
+    polyhedron_type : str
+        Type of polyhedron ('tetrahedron', 'octahedron', 'cube', 'dodecahedron', 'icosahedron')
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing bond angle variance and related calculations
+    """
+    import math
+    from itertools import combinations
+    
+    # Helper function to calculate the angle between three points (p1-p2-p3)
+    def calculate_angle(p1, p2, p3):
+        # Create vectors
+        v1 = [p1[0] - p2[0], p1[1] - p2[1], p1[2] - p2[2]]
+        v2 = [p3[0] - p2[0], p3[1] - p2[1], p3[2] - p2[2]]
+        
+        # Calculate dot product
+        dot_product = sum(a * b for a, b in zip(v1, v2))
+        
+        # Calculate magnitudes
+        mag1 = math.sqrt(sum(a * a for a in v1))
+        mag2 = math.sqrt(sum(a * a for a in v2))
+        
+        # Calculate cosine of angle
+        cos_angle = dot_product / (mag1 * mag2)
+        cos_angle = max(-1.0, min(1.0, cos_angle))  # Clamp to avoid floating point errors
+        
+        # Convert to degrees
+        angle_deg = math.degrees(math.acos(cos_angle))
+        return angle_deg
+    
+    # Ideal bond angles for different polyhedra
+    ideal_bond_angles = {
+        'tetrahedron': 109.47,  # 109°28'
+        'octahedron': 90.0,
+        'cube': 90.0,
+        'dodecahedron': [108.0, 116.57, 120.0],  # Depending on which face
+        'icosahedron': 108.0
+    }
+    
+    if polyhedron_type not in ideal_bond_angles:
+        raise ValueError(f"Unsupported polyhedron type: {polyhedron_type}")
+    
+    # For simplicity, use the first ideal angle for polyhedra with multiple angles
+    phi0 = ideal_bond_angles[polyhedron_type]
+    if isinstance(phi0, list):
+        phi0 = phi0[0]  # Just use the first angle for simplicity
+    
+    # Get coordinates of central atom and all vertices
+    central = central_atom_coords
+    vertices = [atom['coordinates'] for atom in coordinating_atoms]
+    
+    # Calculate all bond angles (vertex-central-vertex)
+    bond_angles = []
+    for i, j in combinations(range(len(vertices)), 2):
+        angle = calculate_angle(vertices[i], central, vertices[j])
+        bond_angles.append(angle)
+    
+    # Calculate number of angles based on the polyhedron type
+    # m = (number of faces) * 3 / 2
+    face_counts = {
+        'tetrahedron': 4,
+        'octahedron': 8,
+        'cube': 6,
+        'dodecahedron': 12,
+        'icosahedron': 20
+    }
+    
+    m = len(bond_angles)  # We calculated all vertex-central-vertex angles
+    
+    # Calculate bond angle variance using equation 11.3
+    variance = sum((phi - phi0)**2 for phi in bond_angles) / (m - 1) if m > 1 else 0
+    
+    return {
+        'bond_angles': bond_angles,
+        'ideal_bond_angle': phi0,
+        'number_of_angles': m,
+        'bond_angle_variance': variance
+    }
+
 def main(xyz_file_path='vesta_file.xyz'):
     try:
         # Parse the file
@@ -522,6 +858,18 @@ def main(xyz_file_path='vesta_file.xyz'):
                 print("\nCalculating Octahedral Edge Lengths...")
                 edge_results = calculate_octahedral_edges(central_pb_coords, nearest_I)
                 
+                # Calculate ECoN
+                print("\nCalculating Effective Coordination Number (ECoN)...")
+                econ_results = calculate_effective_coordination_number(central_pb_coords, nearest_I)
+                
+                # Calculate quadratic elongation
+                print("\nCalculating Quadratic Elongation...")
+                quad_elongation_results = calculate_quadratic_elongation(central_pb_coords, nearest_I)
+                
+                # Calculate bond angle variance
+                print("\nCalculating Bond Angle Variance...")
+                bond_angle_variance_results = calculate_bond_angle_variance(central_pb_coords, nearest_I)
+                
                 # Display results
                 print("\nDistortion Index Results:")
                 print(f"Bond lengths (Pb-I): {[f'{bl:.6f}' for bl in distortion_results['bond_lengths']]}")
@@ -551,6 +899,25 @@ def main(xyz_file_path='vesta_file.xyz'):
                 for edge in edge_results['edge_details']:
                     if edge['type'] == 'I-I':
                         print(f"I(line {edge['atom1_index'] + 2}) to I(line {edge['atom2_index'] + 2}): {edge['length']:.6f} Å")
+                
+                print("\nECoN Results:")
+                print(f"Bond lengths: {[f'{bl:.6f}' for bl in econ_results['bond_lengths']]}")
+                print(f"Minimum bond length: {econ_results['minimum_bond_length']:.6f} Å")
+                print(f"Weighted average bond length: {econ_results['weighted_average_bond_length']:.6f} Å")
+                print(f"Bond weights: {[f'{bw:.6f}' for bw in econ_results['bond_weights']]}")
+                print(f"Effective Coordination Number (ECoN): {econ_results['effective_coordination_number']:.6f}")
+                
+                print("\nQuadratic Elongation Results:")
+                print(f"Center-to-vertex distances: {[f'{d:.6f}' for d in quad_elongation_results['center_to_vertex_distances']]}")
+                print(f"Ideal center-to-vertex distance: {quad_elongation_results['ideal_center_to_vertex_distance']:.6f} Å")
+                print(f"Actual polyhedron volume: {quad_elongation_results['actual_volume']:.6f} Å³")
+                print(f"Quadratic elongation: {quad_elongation_results['quadratic_elongation']:.6f}")
+                
+                print("\nBond Angle Variance Results:")
+                print(f"Bond angles: {[f'{a:.6f}' for a in bond_angle_variance_results['bond_angles']]}")
+                print(f"Ideal bond angle: {bond_angle_variance_results['ideal_bond_angle']:.6f} degrees")
+                print(f"Number of angles: {bond_angle_variance_results['number_of_angles']}")
+                print(f"Bond angle variance: {bond_angle_variance_results['bond_angle_variance']:.6f} degrees²")
             else:
                 print("Could not find enough I atoms to calculate distortion index and polyhedral volume")
         else:
