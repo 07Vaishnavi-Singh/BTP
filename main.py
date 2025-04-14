@@ -1020,12 +1020,140 @@ def calculate_axial_equatorial_bond_lengths(central_pb_coords, coordinating_atom
         'axial_equatorial_difference': axial_equatorial_difference
     }
 
+def calculate_cn_bonds(atoms, coordinates):
+    """
+    Identify C-N bonds in the structure and calculate their position vectors
+    
+    Parameters:
+    -----------
+    atoms : list
+        List of atom symbols
+    coordinates : list
+        List of (x, y, z) coordinates for each atom
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing C-N bond information
+    """
+    # Find all C atoms
+    carbon_indices = [i for i, atom in enumerate(atoms) if atom == 'C']
+    # Find all N atoms
+    nitrogen_indices = [i for i, atom in enumerate(atoms) if atom == 'N']
+    
+    print(f"Found {len(carbon_indices)} C atoms and {len(nitrogen_indices)} N atoms")
+    
+    if len(carbon_indices) != len(nitrogen_indices):
+        print("Warning: Number of C atoms doesn't match number of N atoms!")
+    
+    # Helper function to calculate distance between two points
+    def calculate_distance(p1, p2):
+        return ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2 + (p2[2] - p1[2])**2)**0.5
+    
+    # Helper function to calculate vector from point 1 to point 2
+    def calculate_vector(p1, p2):
+        return (p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2])
+    
+    # First, match in order (1st C with 1st N, 2nd C with 2nd N, etc.)
+    ordered_bonds = []
+    
+    for c_idx, n_idx in zip(carbon_indices, nitrogen_indices):
+        c_coords = coordinates[c_idx]
+        n_coords = coordinates[n_idx]
+        distance = calculate_distance(c_coords, n_coords)
+        bond_vector = calculate_vector(c_coords, n_coords)
+        
+        ordered_bonds.append({
+            'c_atom_index': c_idx,
+            'n_atom_index': n_idx,
+            'c_coords': c_coords,
+            'n_coords': n_coords,
+            'distance': distance,
+            'vector': bond_vector
+        })
+    
+    # Now find the closest N atom for each C atom
+    closest_bonds = []
+    used_n_indices = set()
+    
+    for c_idx in carbon_indices:
+        c_coords = coordinates[c_idx]
+        min_distance = float('inf')
+        closest_n_idx = None
+        closest_vector = None
+        
+        for n_idx in nitrogen_indices:
+            if n_idx in used_n_indices:
+                continue
+                
+            n_coords = coordinates[n_idx]
+            distance = calculate_distance(c_coords, n_coords)
+            
+            if distance < min_distance:
+                min_distance = distance
+                closest_n_idx = n_idx
+                closest_vector = calculate_vector(c_coords, n_coords)
+        
+        if closest_n_idx is not None:
+            used_n_indices.add(closest_n_idx)
+            closest_bonds.append({
+                'c_atom_index': c_idx,
+                'n_atom_index': closest_n_idx,
+                'c_coords': c_coords,
+                'n_coords': coordinates[closest_n_idx],
+                'distance': min_distance,
+                'vector': closest_vector
+            })
+    
+    return {
+        'ordered_bonds': ordered_bonds,
+        'closest_bonds': closest_bonds,
+        'num_carbon': len(carbon_indices),
+        'num_nitrogen': len(nitrogen_indices)
+    }
+
+def display_cn_bonds(cn_bond_results):
+    """
+    Display the results of C-N bond calculations
+    
+    Parameters:
+    -----------
+    cn_bond_results : dict
+        Dictionary containing C-N bond information from calculate_cn_bonds
+    """
+    print("\n--------------------------------------------")
+    print("C-N BOND ANALYSIS RESULTS:")
+    print("--------------------------------------------")
+    print(f"Found {cn_bond_results['num_carbon']} C atoms and {cn_bond_results['num_nitrogen']} N atoms")
+    
+    # Display bonds matched in order (1st C with 1st N, etc.)
+    print("\nC-N Bonds (matched in order):")
+    for i, bond in enumerate(cn_bond_results['ordered_bonds'], 1):
+        print(f"Bond #{i}: C(line {bond['c_atom_index'] + 3}) - N(line {bond['n_atom_index'] + 3})")
+        print(f"  Distance: {bond['distance']:.6f} Å")
+        print(f"  Bond vector: ({bond['vector'][0]:.6f}, {bond['vector'][1]:.6f}, {bond['vector'][2]:.6f})")
+    
+    # Display bonds matched by closest distance
+    print("\nC-N Bonds (matched by closest distance):")
+    for i, bond in enumerate(cn_bond_results['closest_bonds'], 1):
+        print(f"Bond #{i}: C(line {bond['c_atom_index'] + 3}) - N(line {bond['n_atom_index'] + 3})")
+        print(f"  Distance: {bond['distance']:.6f} Å")
+        print(f"  Bond vector: ({bond['vector'][0]:.6f}, {bond['vector'][1]:.6f}, {bond['vector'][2]:.6f})")
+    
+    print("--------------------------------------------")
+
 def main(xyz_file_path='vesta_file.xyz', specific_atom_index=None):
     try:
         # Parse the file
         print(f"Parsing XYZ file: {xyz_file_path}")
         atoms, coordinates = parse_xyz_file(xyz_file_path)
         print(f"Found {len(atoms)} atoms in the file")
+        
+        # Analyze C-N bonds if present
+        if 'C' in atoms and 'N' in atoms:
+            print("\nAnalyzing C-N bonds...")
+            cn_bond_results = calculate_cn_bonds(atoms, coordinates)
+            display_cn_bonds(cn_bond_results)
         
         # Check if we're analyzing a specific atom
         if specific_atom_index is not None:
