@@ -961,6 +961,65 @@ def calculate_axial_and_equatorial_angles(central_pb_coords, coordinating_atoms)
         'opposite_equatorial_data': opposite_equatorial_angle
     }
 
+def calculate_axial_equatorial_bond_lengths(central_pb_coords, coordinating_atoms, axial_indices, equatorial_indices):
+    """
+    Calculate the bond lengths for axial and equatorial I-Pb bonds separately
+    
+    Parameters:
+    -----------
+    central_pb_coords : tuple
+        (x, y, z) coordinates of the central Pb atom
+    coordinating_atoms : list
+        List of dictionaries containing information about the 6 I atoms
+    axial_indices : list
+        List of indices identifying the axial I atoms
+    equatorial_indices : list
+        List of indices identifying the equatorial I atoms
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing axial and equatorial bond lengths and statistics
+    """
+    # Helper function to calculate distance between two points
+    def calculate_distance(p1, p2):
+        return ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2 + (p2[2] - p1[2])**2)**0.5
+    
+    # Calculate axial bond lengths
+    axial_bond_lengths = []
+    for idx in axial_indices:
+        atom = coordinating_atoms[idx]
+        distance = calculate_distance(central_pb_coords, atom['coordinates'])
+        axial_bond_lengths.append({
+            'atom_index': atom['atom_index'],
+            'length': distance
+        })
+    
+    # Calculate equatorial bond lengths
+    equatorial_bond_lengths = []
+    for idx in equatorial_indices:
+        atom = coordinating_atoms[idx]
+        distance = calculate_distance(central_pb_coords, atom['coordinates'])
+        equatorial_bond_lengths.append({
+            'atom_index': atom['atom_index'],
+            'length': distance
+        })
+    
+    # Calculate statistics
+    avg_axial_length = sum(item['length'] for item in axial_bond_lengths) / len(axial_bond_lengths) if axial_bond_lengths else 0
+    avg_equatorial_length = sum(item['length'] for item in equatorial_bond_lengths) / len(equatorial_bond_lengths) if equatorial_bond_lengths else 0
+    
+    # Calculate the difference between axial and equatorial lengths
+    axial_equatorial_difference = avg_axial_length - avg_equatorial_length
+    
+    return {
+        'axial_bond_lengths': axial_bond_lengths,
+        'equatorial_bond_lengths': equatorial_bond_lengths,
+        'avg_axial_length': avg_axial_length,
+        'avg_equatorial_length': avg_equatorial_length,
+        'axial_equatorial_difference': axial_equatorial_difference
+    }
+
 def main(xyz_file_path='vesta_file.xyz', specific_atom_index=None):
     try:
         # Parse the file
@@ -1079,6 +1138,28 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     print("\nCalculating Axial and Equatorial Angles...")
     angle_results = calculate_axial_and_equatorial_angles(central_pb_coords, nearest_I)
     
+    # Calculate axial and equatorial bond lengths
+    print("\nCalculating Axial and Equatorial Bond Lengths...")
+    bond_length_results = calculate_axial_equatorial_bond_lengths(
+        central_pb_coords, 
+        nearest_I, 
+        [nearest_I.index(next(i for i in nearest_I if i['atom_index'] == idx)) for idx in angle_results['axial_indices']],
+        [nearest_I.index(next(i for i in nearest_I if i['atom_index'] == idx)) for idx in angle_results['equatorial_indices']]
+    )
+    
+    # Display axial and equatorial bond lengths immediately and prominently
+    print("\n--------------------------------------------")
+    print("AXIAL AND EQUATORIAL BOND LENGTHS RESULTS:")
+    print("--------------------------------------------")
+    print("2 Axial Pb-I bonds:")
+    for i, bond in enumerate(bond_length_results['axial_bond_lengths'], 1):
+        print(f"  Axial bond #{i}: Pb to I(line {bond['atom_index'] + 2}): {bond['length']:.6f} Å")
+    
+    print("\n4 Equatorial Pb-I bonds:")
+    for i, bond in enumerate(bond_length_results['equatorial_bond_lengths'], 1):
+        print(f"  Equatorial bond #{i}: Pb to I(line {bond['atom_index'] + 2}): {bond['length']:.6f} Å")
+    print("--------------------------------------------")
+    
     # Calculate distortion index
     print("\nCalculating Distortion Index...")
     distortion_results = calculate_distortion_index(central_pb_coords, nearest_I)
@@ -1103,7 +1184,7 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     print("\nCalculating Bond Angle Variance...")
     bond_angle_variance_results = calculate_bond_angle_variance(central_pb_coords, nearest_I)
     
-    # Display axial and equatorial angles results first
+    # Display axial and equatorial angles results 
     print("\nAxial and Equatorial Angles Results:")
     print(f"Axial I atoms (line numbers in file): {[idx + 2 for idx in angle_results['axial_indices']]}")
     print(f"Axial I-Pb-I angle: {angle_results['axial_angle']:.6f}°")
@@ -1187,9 +1268,16 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     print(f"Ideal bond angle (φ0): {bond_angle_variance_results['ideal_bond_angle']:.6f}°")
     print(f"Bond angle variance (σ²): {bond_angle_variance_results['bond_angle_variance']:.6f} deg.²")
     
-    # Print a summary of key metrics
+    # Print a summary of key metrics with focus on individual bond lengths
     print("\nSummary of Key Metrics:")
-    print(f"Average bond length = {distortion_results['average_bond_length']:.4f} Å")
+    print("Axial Pb-I bonds:")
+    for i, bond in enumerate(bond_length_results['axial_bond_lengths'], 1):
+        print(f"  Axial bond #{i}: {bond['length']:.4f} Å")
+    
+    print("Equatorial Pb-I bonds:")
+    for i, bond in enumerate(bond_length_results['equatorial_bond_lengths'], 1):
+        print(f"  Equatorial bond #{i}: {bond['length']:.4f} Å")
+        
     print(f"Polyhedral volume = {volume_results['total_volume']:.4f} Å^3")
     print(f"Distortion index (bond length) = {distortion_results['distortion_index']:.5f}")
     print(f"Quadratic elongation = {quad_elongation_results['quadratic_elongation']:.4f}")
