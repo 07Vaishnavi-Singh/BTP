@@ -793,6 +793,174 @@ def calculate_bond_angle_variance(central_atom_coords, coordinating_atoms, polyh
         'bond_angle_variance': variance
     }
 
+def calculate_axial_and_equatorial_angles(central_pb_coords, coordinating_atoms):
+    """
+    Identify axial and equatorial I atoms and calculate the relevant I-Pb-I angles
+    
+    Parameters:
+    -----------
+    central_pb_coords : tuple
+        (x, y, z) coordinates of the central Pb atom
+    coordinating_atoms : list
+        List of dictionaries containing information about the 6 I atoms
+        Each dictionary should have a 'coordinates' key with (x, y, z) values
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing axial and equatorial angles and related information
+    """
+    import math
+    
+    # Verify we have exactly 6 coordinating atoms
+    if len(coordinating_atoms) != 6:
+        raise ValueError(f"Expected 6 coordinating atoms, got {len(coordinating_atoms)}")
+    
+    # Helper function to calculate vector between two points
+    def calculate_vector(p1, p2):
+        return (p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2])
+    
+    # Helper function to normalize a vector
+    def normalize_vector(v):
+        magnitude = math.sqrt(v[0]**2 + v[1]**2 + v[2]**2)
+        return (v[0]/magnitude, v[1]/magnitude, v[2]/magnitude)
+    
+    # Helper function to calculate dot product
+    def dot_product(v1, v2):
+        return v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2]
+    
+    # Helper function to calculate angle between two vectors
+    def angle_between_vectors(v1, v2):
+        # Normalize vectors
+        v1_norm = normalize_vector(v1)
+        v2_norm = normalize_vector(v2)
+        
+        # Calculate dot product
+        dot = dot_product(v1_norm, v2_norm)
+        
+        # Clamp to avoid floating point errors
+        dot = max(-1.0, min(1.0, dot))
+        
+        # Calculate angle in degrees
+        angle_rad = math.acos(dot)
+        angle_deg = angle_rad * 180.0 / math.pi
+        
+        return angle_deg
+    
+    # Calculate vectors from central Pb to each I atom
+    vectors = []
+    for i, atom in enumerate(coordinating_atoms):
+        vector = calculate_vector(central_pb_coords, atom['coordinates'])
+        norm_vector = normalize_vector(vector)
+        vectors.append({
+            'atom_index': atom['atom_index'],
+            'vector': vector,
+            'normalized': norm_vector,
+            'position_index': i
+        })
+    
+    # Find pairs of atoms that are approximately opposite to each other
+    opposite_pairs = []
+    for i in range(len(vectors)):
+        for j in range(i + 1, len(vectors)):
+            v1 = vectors[i]['normalized']
+            v2 = vectors[j]['normalized']
+            
+            # Calculate dot product to find opposite vectors
+            dot = dot_product(v1, v2)
+            
+            # If dot product is close to -1, vectors are opposite
+            if dot < -0.8:  # Allow some tolerance for non-perfect octahedra
+                opposite_pairs.append((i, j))
+    
+    # There should be 3 pairs of opposite atoms
+    if len(opposite_pairs) != 3:
+        print(f"Warning: Found {len(opposite_pairs)} pairs of opposite atoms, expected 3.")
+    
+    # Identify the axial pair: typically the axial pair is the one with the largest separation
+    # We'll calculate this as the pair with the angle closest to 180 degrees
+    axial_pair_index = 0
+    max_angle = 0
+    
+    for i in range(len(opposite_pairs)):
+        v1 = vectors[opposite_pairs[i][0]]['vector']
+        v2 = vectors[opposite_pairs[i][1]]['vector']
+        angle = angle_between_vectors(v1, v2)
+        
+        if angle > max_angle:
+            max_angle = angle
+            axial_pair_index = i
+    
+    # Get the axial pair
+    axial_pair = opposite_pairs[axial_pair_index]
+    axial_indices = [vectors[axial_pair[0]]['position_index'], vectors[axial_pair[1]]['position_index']]
+    
+    # The remaining atoms are equatorial
+    all_indices = set(range(6))
+    equatorial_indices = list(all_indices - set(axial_indices))
+    
+    # Calculate axial angle
+    axial_angle = angle_between_vectors(
+        vectors[axial_pair[0]]['vector'],
+        vectors[axial_pair[1]]['vector']
+    )
+    
+    # Calculate all possible angles between equatorial atoms
+    equatorial_angles = []
+    equatorial_pairs = []
+    
+    # Calculate angles between each pair of equatorial atoms
+    for i in range(len(equatorial_indices)):
+        for j in range(i + 1, len(equatorial_indices)):
+            eq_idx1 = equatorial_indices[i]
+            eq_idx2 = equatorial_indices[j]
+            
+            angle = angle_between_vectors(
+                vectors[eq_idx1]['vector'],
+                vectors[eq_idx2]['vector']
+            )
+            
+            equatorial_angles.append({
+                'angle': angle,
+                'pair': (eq_idx1, eq_idx2),
+                'atom_indices': (vectors[eq_idx1]['atom_index'], vectors[eq_idx2]['atom_index'])
+            })
+    
+    # Sort the equatorial angles to better identify adjacent vs opposite atoms
+    equatorial_angles.sort(key=lambda x: x['angle'])
+    
+    # In a perfect octahedron, we expect:
+    # - 2 pairs of adjacent equatorial atoms with angles around 90°
+    # - 1 pair of opposite equatorial atoms with angle around 180°
+    
+    # Find the two equatorial angles closest to 90 degrees (adjacent atoms)
+    adjacent_equatorial_data = []
+    opposite_equatorial_data = []
+    
+    for angle_data in equatorial_angles:
+        if abs(angle_data['angle'] - 90) < abs(angle_data['angle'] - 180):
+            # This is closer to 90°, so likely adjacent equatorial atoms
+            adjacent_equatorial_data.append(angle_data)
+        else:
+            # This is closer to 180°, so likely opposite equatorial atoms
+            opposite_equatorial_data.append(angle_data)
+    
+    # Take the two angles closest to 90° (there should be 4 adjacent pairs in a perfect octahedron)
+    adjacent_equatorial_data = sorted(adjacent_equatorial_data, key=lambda x: abs(x['angle'] - 90))[:2]
+    
+    # Also identify the angle between opposite equatorial atoms (should be close to 180°)
+    opposite_equatorial_angle = None
+    if opposite_equatorial_data:
+        opposite_equatorial_angle = opposite_equatorial_data[0]
+    
+    return {
+        'axial_indices': [vectors[idx]['atom_index'] for idx in axial_indices],
+        'axial_angle': axial_angle,
+        'equatorial_indices': [vectors[idx]['atom_index'] for idx in equatorial_indices],
+        'adjacent_equatorial_data': adjacent_equatorial_data,
+        'opposite_equatorial_data': opposite_equatorial_angle
+    }
+
 def main(xyz_file_path='vesta_file.xyz', specific_atom_index=None):
     try:
         # Parse the file
@@ -907,6 +1075,10 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
         print(f"   Coordinates: X: {i_coords[0]:.6f}, Y: {i_coords[1]:.6f}, Z: {i_coords[2]:.6f}")
         print(f"   Distance from Pb: {iodine['distance']:.6f}")
     
+    # Calculate axial and equatorial angles
+    print("\nCalculating Axial and Equatorial Angles...")
+    angle_results = calculate_axial_and_equatorial_angles(central_pb_coords, nearest_I)
+    
     # Calculate distortion index
     print("\nCalculating Distortion Index...")
     distortion_results = calculate_distortion_index(central_pb_coords, nearest_I)
@@ -930,6 +1102,35 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     # Calculate bond angle variance
     print("\nCalculating Bond Angle Variance...")
     bond_angle_variance_results = calculate_bond_angle_variance(central_pb_coords, nearest_I)
+    
+    # Display axial and equatorial angles results first
+    print("\nAxial and Equatorial Angles Results:")
+    print(f"Axial I atoms (line numbers in file): {[idx + 2 for idx in angle_results['axial_indices']]}")
+    print(f"Axial I-Pb-I angle: {angle_results['axial_angle']:.6f}°")
+    
+    print(f"\nEquatorial I atoms (line numbers in file): {[idx + 2 for idx in angle_results['equatorial_indices']]}")
+    
+    # Display the 2 equatorial angles
+    if len(angle_results['adjacent_equatorial_data']) >= 2:
+        print("Equatorial I-Pb-I angles (for adjacent I atoms):")
+        for i in range(2):  # Display both angles
+            angle_data = angle_results['adjacent_equatorial_data'][i]
+            atom_idx1, atom_idx2 = angle_data['atom_indices']
+            print(f"  I(line {atom_idx1 + 2})-Pb-I(line {atom_idx2 + 2}): {angle_data['angle']:.6f}°")
+            
+        # Also display the opposite equatorial angle if available
+        if angle_results['opposite_equatorial_data']:
+            opp_data = angle_results['opposite_equatorial_data']
+            atom_idx1, atom_idx2 = opp_data['atom_indices']
+            print(f"\nOpposite equatorial I-Pb-I angle:")
+            print(f"  I(line {atom_idx1 + 2})-Pb-I(line {atom_idx2 + 2}): {opp_data['angle']:.6f}°")
+    elif angle_results['adjacent_equatorial_data']:
+        print("Found only one equatorial I-Pb-I angle (for adjacent I atoms):")
+        angle_data = angle_results['adjacent_equatorial_data'][0]
+        atom_idx1, atom_idx2 = angle_data['atom_indices']
+        print(f"  I(line {atom_idx1 + 2})-Pb-I(line {atom_idx2 + 2}): {angle_data['angle']:.6f}°")
+    else:
+        print("Could not identify adjacent equatorial I atoms.")
     
     # Display results
     print("\nDistortion Index Results:")
@@ -994,6 +1195,10 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     print(f"Quadratic elongation = {quad_elongation_results['quadratic_elongation']:.4f}")
     print(f"Bond angle variance = {bond_angle_variance_results['bond_angle_variance']:7.4f} deg.^2")
     print(f"Effective coordination number = {econ_results['effective_coordination_number']:.4f}")
+    print(f"Axial I-Pb-I angle = {angle_results['axial_angle']:.4f}°")
+    # Display the two equatorial angles in the summary
+    if len(angle_results['adjacent_equatorial_data']) >= 2:
+        print(f"Equatorial I-Pb-I angles = {angle_results['adjacent_equatorial_data'][0]['angle']:.4f}°, {angle_results['adjacent_equatorial_data'][1]['angle']:.4f}°")
 
 # Run the main function when the script is executed
 if __name__ == "__main__":
