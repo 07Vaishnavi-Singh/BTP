@@ -648,14 +648,14 @@ def calculate_quadratic_elongation(central_atom_coords, coordinating_atoms, poly
     # Calculate actual volume of the polyhedron
     actual_volume = calculate_polyhedron_volume(central_atom_coords, vertices, polyhedron_type)
     
-    # For a regular polyhedron of the specified type, calculate the constant relating
-    # volume to the center-to-vertex distance (l0^3)
-    # For octahedron: V = (sqrt(2)/3) * l0^3
-    # So l0 = (3V/sqrt(2))^(1/3)
-    
+    # For octahedron: V = (√2/3) * a³
+    # Therefore: a = (3V/√2)^(1/3)
+    # And l₀ = a/√2
     if polyhedron_type == 'octahedron':
-        # For octahedron, V = (sqrt(2)/3) * l0^3, so l0 = (3V/sqrt(2))^(1/3)
-        l0 = (3 * actual_volume / math.sqrt(2)) ** (1/3)
+        # First calculate 'a' from the volume
+        a = (3 * actual_volume / math.sqrt(2)) ** (1/3)
+        # Then calculate l₀ = a/√2
+        l0 = a / math.sqrt(2)
     else:
         raise NotImplementedError(f"l0 calculation for {polyhedron_type} not implemented")
     
@@ -665,6 +665,7 @@ def calculate_quadratic_elongation(central_atom_coords, coordinating_atoms, poly
     return {
         'center_to_vertex_distances': distances,
         'ideal_center_to_vertex_distance': l0,
+        'edge_length_a': a,  # Added to return the calculated edge length
         'actual_volume': actual_volume,
         'quadratic_elongation': quad_elongation
     }
