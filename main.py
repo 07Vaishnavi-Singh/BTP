@@ -1,6 +1,18 @@
 def parse_xyz_file(filepath):
     """
     Parse XYZ file and return atom names and coordinates
+    
+    Parameters:
+    -----------
+    filepath : str
+        Path to the XYZ file to be parsed
+        
+    Returns:
+    --------
+    tuple
+        A tuple containing two lists:
+        1. atoms: List of atom symbols (e.g., 'C', 'N', 'Pb', 'I')
+        2. coordinates: List of (x, y, z) coordinate tuples for each atom
     """
     atoms = []
     coordinates = []
@@ -46,10 +58,11 @@ def calculate_octahedral_volume(central_atom_coords, coordinating_atoms):
     
     # Helper functions for vector operations
     def vector_subtract(v1, v2):
+        """Calculate vector difference v1 - v2"""
         return (v1[0] - v2[0], v1[1] - v2[1], v1[2] - v2[2])
     
     def det_3x3(matrix):
-        # Calculate determinant of 3x3 matrix
+        """Calculate determinant of 3x3 matrix"""
         a, b, c = matrix
         return (
             a[0] * (b[1] * c[2] - b[2] * c[1]) -
@@ -84,7 +97,10 @@ def calculate_octahedral_volume(central_atom_coords, coordinating_atoms):
     
     # Helper function to check if three points form a valid face
     def is_valid_face(p1_idx, p2_idx, p3_idx, all_points):
-        """Check if three points form a valid face of the octahedron"""
+        """
+        Check if three points form a valid face of the octahedron
+        A valid face has all other points on the same side of the plane
+        """
         # In a valid face, all other points should be on the same side of the plane
         p1, p2, p3 = [all_points[i] for i in (p1_idx, p2_idx, p3_idx)]
         
