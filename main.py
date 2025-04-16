@@ -330,6 +330,18 @@ def find_nearest_I_atoms(central_pb_coords, atoms, coordinates, num_neighbors=6)
 def find_center_atom(atoms, coordinates):
     """
     Find the atom that is most central (has smallest maximum distance to any other atom)
+    
+    Parameters:
+    -----------
+    atoms : list
+        List of atom symbols (e.g., 'C', 'N', 'Pb', 'I')
+    coordinates : list
+        List of (x, y, z) coordinates for each atom
+        
+    Returns:
+    --------
+    dict or None
+        Dictionary containing information about the most central atom or None if no atoms
     """
     num_atoms = len(atoms)
     if num_atoms == 0:
@@ -347,7 +359,9 @@ def find_center_atom(atoms, coordinates):
         for j in range(num_atoms):
             if i != j:
                 x2, y2, z2 = coordinates[j]
+                # Calculate Euclidean distance between atoms i and j
                 distance = ((x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2)**0.5
+                # Keep track of the maximum distance found
                 max_distance = max(max_distance, distance)
         
         # If this atom has a smaller maximum distance, it's more central
@@ -368,21 +382,39 @@ def find_center_atom(atoms, coordinates):
 def find_nearest_pb_atom(center_coords, atoms, coordinates):
     """
     Find the nearest Pb atom to the center coordinates
+    
+    Parameters:
+    -----------
+    center_coords : tuple
+        (x, y, z) coordinates of the central point
+    atoms : list
+        List of atom symbols (e.g., 'C', 'N', 'Pb', 'I')
+    coordinates : list
+        List of (x, y, z) coordinates for each atom
+        
+    Returns:
+    --------
+    dict or None
+        Dictionary containing information about the nearest Pb atom or None if no Pb atoms found
     """
     min_distance = float('inf')
     nearest_pb_index = None
     center_x, center_y, center_z = center_coords
 
+    # Iterate through all atoms to find Pb atoms
     for i in range(len(atoms)):
         if atoms[i] == 'Pb':
             x, y, z = coordinates[i]
+            # Calculate Euclidean distance from center point to this Pb atom
             distance = ((x - center_x)**2 + 
                        (y - center_y)**2 + 
                        (z - center_z)**2)**0.5
+            # If this is the closest Pb atom found so far, update our records
             if distance < min_distance:
                 min_distance = distance
                 nearest_pb_index = i
     
+    # If we found at least one Pb atom, return information about the nearest one
     if nearest_pb_index is not None:
         return {
             'atom': atoms[nearest_pb_index],
@@ -999,33 +1031,37 @@ def calculate_axial_equatorial_bond_lengths(central_pb_coords, coordinating_atom
     """
     # Helper function to calculate distance between two points
     def calculate_distance(p1, p2):
+        """Calculate Euclidean distance between two points"""
         return ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2 + (p2[2] - p1[2])**2)**0.5
     
-    # Calculate axial bond lengths
+    # Calculate axial bond lengths (typically the bonds along the main axis)
     axial_bond_lengths = []
     for idx in axial_indices:
         atom = coordinating_atoms[idx]
+        # Calculate distance from central Pb to this axial I atom
         distance = calculate_distance(central_pb_coords, atom['coordinates'])
         axial_bond_lengths.append({
             'atom_index': atom['atom_index'],
             'length': distance
         })
     
-    # Calculate equatorial bond lengths
+    # Calculate equatorial bond lengths (typically the bonds perpendicular to the main axis)
     equatorial_bond_lengths = []
     for idx in equatorial_indices:
         atom = coordinating_atoms[idx]
+        # Calculate distance from central Pb to this equatorial I atom
         distance = calculate_distance(central_pb_coords, atom['coordinates'])
         equatorial_bond_lengths.append({
             'atom_index': atom['atom_index'],
             'length': distance
         })
     
-    # Calculate statistics
+    # Calculate statistics - average lengths for both types of bonds
     avg_axial_length = sum(item['length'] for item in axial_bond_lengths) / len(axial_bond_lengths) if axial_bond_lengths else 0
     avg_equatorial_length = sum(item['length'] for item in equatorial_bond_lengths) / len(equatorial_bond_lengths) if equatorial_bond_lengths else 0
     
     # Calculate the difference between axial and equatorial lengths
+    # This is an important metric for assessing octahedral distortion
     axial_equatorial_difference = avg_axial_length - avg_equatorial_length
     
     return {
@@ -1043,26 +1079,26 @@ def calculate_cn_bonds(atoms, coordinates):
     Parameters:
     -----------
     atoms : list
-        List of atom symbols
+        List of atom symbols (e.g., 'C', 'N', 'Pb', 'I')
     coordinates : list
         List of (x, y, z) coordinates for each atom
         
     Returns:
     --------
     dict
-        Dictionary containing C-N bond information
+        Dictionary containing C-N bond information including distances and vectors
     """
-    # Find all C atoms
+    # Find indices of all Carbon and Nitrogen atoms in the structure
     carbon_indices = [i for i, atom in enumerate(atoms) if atom == 'C']
-    # Find all N atoms
     nitrogen_indices = [i for i, atom in enumerate(atoms) if atom == 'N']
     
     print(f"Found {len(carbon_indices)} C atoms and {len(nitrogen_indices)} N atoms")
     
+    # Check if the numbers match - often C and N atoms come in pairs
     if len(carbon_indices) != len(nitrogen_indices):
         print("Warning: Number of C atoms doesn't match number of N atoms!")
     
-    # Helper function to calculate distance between two points
+    # Helper function to calculate distance between two points using Euclidean distance
     def calculate_distance(p1, p2):
         return ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2 + (p2[2] - p1[2])**2)**0.5
     
@@ -1070,7 +1106,8 @@ def calculate_cn_bonds(atoms, coordinates):
     def calculate_vector(p1, p2):
         return (p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2])
     
-    # First, match in order (1st C with 1st N, 2nd C with 2nd N, etc.)
+    # First matching method: match in order (1st C with 1st N, 2nd C with 2nd N, etc.)
+    # This is simpler but may not be accurate if atoms aren't listed in corresponding order
     ordered_bonds = []
     
     for c_idx, n_idx in zip(carbon_indices, nitrogen_indices):
@@ -1088,9 +1125,10 @@ def calculate_cn_bonds(atoms, coordinates):
             'vector': bond_vector
         })
     
-    # Now find the closest N atom for each C atom
+    # Second matching method: find the closest N atom for each C atom
+    # This is more realistic for actual molecular structures
     closest_bonds = []
-    used_n_indices = set()
+    used_n_indices = set()  # Track which N atoms have already been matched
     
     for c_idx in carbon_indices:
         c_coords = coordinates[c_idx]
@@ -1098,9 +1136,10 @@ def calculate_cn_bonds(atoms, coordinates):
         closest_n_idx = None
         closest_vector = None
         
+        # For each C atom, find the closest unused N atom
         for n_idx in nitrogen_indices:
             if n_idx in used_n_indices:
-                continue
+                continue  # Skip N atoms already paired with another C
                 
             n_coords = coordinates[n_idx]
             distance = calculate_distance(c_coords, n_coords)
@@ -1110,8 +1149,9 @@ def calculate_cn_bonds(atoms, coordinates):
                 closest_n_idx = n_idx
                 closest_vector = calculate_vector(c_coords, n_coords)
         
+        # If we found a matching N atom, record the bond information
         if closest_n_idx is not None:
-            used_n_indices.add(closest_n_idx)
+            used_n_indices.add(closest_n_idx)  # Mark this N atom as used
             closest_bonds.append({
                 'c_atom_index': c_idx,
                 'n_atom_index': closest_n_idx,
@@ -1121,6 +1161,7 @@ def calculate_cn_bonds(atoms, coordinates):
                 'vector': closest_vector
             })
     
+    # Return both bond matching methods for comparison
     return {
         'ordered_bonds': ordered_bonds,
         'closest_bonds': closest_bonds,
@@ -1130,71 +1171,89 @@ def calculate_cn_bonds(atoms, coordinates):
 
 def display_cn_bonds(cn_bond_results):
     """
-    Display the results of C-N bond calculations
+    Display the results of C-N bond calculations in a readable format
     
     Parameters:
     -----------
     cn_bond_results : dict
         Dictionary containing C-N bond information from calculate_cn_bonds
     """
+    # Print a header for the C-N bond analysis results
     print("\n--------------------------------------------")
     print("C-N BOND ANALYSIS RESULTS:")
     print("--------------------------------------------")
     print(f"Found {cn_bond_results['num_carbon']} C atoms and {cn_bond_results['num_nitrogen']} N atoms")
     
     # Display bonds matched in order (1st C with 1st N, etc.)
+    # This method pairs atoms based on their order in the file
     print("\nC-N Bonds (matched in order):")
     for i, bond in enumerate(cn_bond_results['ordered_bonds'], 1):
+        # Add 3 because atoms start from line 3 in XYZ file (after header lines)
         print(f"Bond #{i}: C(line {bond['c_atom_index'] + 3}) - N(line {bond['n_atom_index'] + 3})")
         print(f"  Distance: {bond['distance']:.6f} Å")
         print(f"  Bond vector: ({bond['vector'][0]:.6f}, {bond['vector'][1]:.6f}, {bond['vector'][2]:.6f})")
     
     # Display bonds matched by closest distance
+    # This method pairs each C with its closest N atom
     print("\nC-N Bonds (matched by closest distance):")
     for i, bond in enumerate(cn_bond_results['closest_bonds'], 1):
         print(f"Bond #{i}: C(line {bond['c_atom_index'] + 3}) - N(line {bond['n_atom_index'] + 3})")
         print(f"  Distance: {bond['distance']:.6f} Å")
         print(f"  Bond vector: ({bond['vector'][0]:.6f}, {bond['vector'][1]:.6f}, {bond['vector'][2]:.6f})")
     
+    # Print footer to separate from subsequent output
     print("--------------------------------------------")
 
 def main(xyz_file_path='vesta_file.xyz', specific_atom_index=None):
+    """
+    Main function to process XYZ file and perform analysis on its molecular structure
+    
+    Parameters:
+    -----------
+    xyz_file_path : str, optional
+        Path to the XYZ file to analyze (default: 'vesta_file.xyz')
+    specific_atom_index : int, optional
+        Specific atom index to analyze (1-based, as in the file), 
+        if None, the most central atom will be found automatically
+    """
     try:
-        # Parse the file
+        # Parse the XYZ file to get atom types and coordinates
         print(f"Parsing XYZ file: {xyz_file_path}")
         atoms, coordinates = parse_xyz_file(xyz_file_path)
         print(f"Found {len(atoms)} atoms in the file")
         
-        # Analyze C-N bonds if present
+        # If structure has C and N atoms, analyze their bonds (for organic molecules)
         if 'C' in atoms and 'N' in atoms:
             print("\nAnalyzing C-N bonds...")
             cn_bond_results = calculate_cn_bonds(atoms, coordinates)
             display_cn_bonds(cn_bond_results)
         
-        # Check if we're analyzing a specific atom
+        # Two analysis paths: specific atom or automatic center finding
         if specific_atom_index is not None:
-            # Adjust from line number to array index if needed
-            # Convert from 1-based index (atom number) to 0-based array index
+            # Path 1: User specified a particular atom to analyze
+            # Convert from 1-based index (as in file) to 0-based array index
             atom_index = specific_atom_index - 1
             
+            # Validate the atom index
             if atom_index < 0 or atom_index >= len(atoms):
                 print(f"Error: Atom index {specific_atom_index} is out of range. The file has {len(atoms)} atoms.")
                 return
             
+            # Check if the specified atom is a lead atom (Pb)
             if atoms[atom_index] != 'Pb':
                 print(f"Warning: Atom at index {specific_atom_index} is {atoms[atom_index]}, not Pb.")
                 return
             
-            # Use this specific Pb atom
+            # Use this specific Pb atom as the central atom for analysis
             central_pb_coords = coordinates[atom_index]
             print(f"\nAnalyzing specific Pb atom at line number {atom_index + 3} (atom #{atom_index + 1}):")
             print(f"Coordinates: X: {central_pb_coords[0]:.6f}, Y: {central_pb_coords[1]:.6f}, Z: {central_pb_coords[2]:.6f}")
             
-            # Find the 6 nearest I atoms to this specific Pb atom
+            # Find the 6 nearest I atoms to this specific Pb atom to analyze the octahedron
             print("\nFinding 6 nearest I atoms to this Pb atom...")
             nearest_I = find_nearest_I_atoms(central_pb_coords, atoms, coordinates)
             
-            # Proceed with analysis as normal
+            # Proceed with analysis of this Pb atom and its surrounding I atoms
             if nearest_I:
                 analyze_and_display_results(central_pb_coords, nearest_I)
             else:
@@ -1202,10 +1261,11 @@ def main(xyz_file_path='vesta_file.xyz', specific_atom_index=None):
             
             return
             
-        # If no specific atom was requested, proceed with the center atom analysis as before
+        # Path 2: Automatic center finding (when no specific atom is requested)
         result = find_center_atom(atoms, coordinates)
         
         if result:
+            # Display information about the center atom found
             print("\nCenter Atom Analysis:")
             print(f"Center atom type: {result['center_atom']}")
             print(f"Center atom line number in file: {result['atom_index'] + 2}")  # +2 because atoms start from line 3
@@ -1215,17 +1275,17 @@ def main(xyz_file_path='vesta_file.xyz', specific_atom_index=None):
             print(f"Maximum distance to any other atom: {result['max_distance']:.6f}")
             print(f"Total atoms: {result['num_atoms']}")
             
-            # Determine which Pb atom to use and find the 6 nearest I atoms
+            # Variables to track which Pb atom to use and its surrounding I atoms
             nearest_I = None
             central_pb_coords = None
             
             if result['center_atom'] == "Pb":
-                # The center atom is already Pb
+                # Case 1: The center atom is already Pb - use it directly
                 central_pb_coords = result['center_coordinates']
                 print("\nCenter atom is already Pb. Finding 6 nearest I atoms...")
                 nearest_I = find_nearest_I_atoms(central_pb_coords, atoms, coordinates)
             else:
-                # Need to find the nearest Pb atom
+                # Case 2: Center atom is not Pb - find the nearest Pb atom
                 print(f"\nFinding nearest Pb atom to the center atom...")
                 nearest_pb = find_nearest_pb_atom(
                     result['center_coordinates'],
@@ -1234,6 +1294,7 @@ def main(xyz_file_path='vesta_file.xyz', specific_atom_index=None):
                 )
                 
                 if nearest_pb:
+                    # Found a Pb atom - use it for analysis
                     central_pb_coords = nearest_pb['coordinates']
                     print("\nNearest Pb Atom Found:")
                     print(f"Pb atom line number in file: {nearest_pb['atom_index'] + 2}")  # +2 because atoms start from line 3
@@ -1247,7 +1308,7 @@ def main(xyz_file_path='vesta_file.xyz', specific_atom_index=None):
                     print("No Pb atoms found in the structure")
                     return
             
-            # Display the 6 nearest I atoms and analyze results
+            # Perform detailed analysis if we found a Pb atom and its nearest I atoms
             if nearest_I:
                 analyze_and_display_results(central_pb_coords, nearest_I)
             else:
@@ -1255,6 +1316,7 @@ def main(xyz_file_path='vesta_file.xyz', specific_atom_index=None):
         else:
             print("No results found from coordinate calculation")
     except Exception as e:
+        # Handle any exceptions that occur during processing
         print(f"An error occurred: {e}")
         import traceback
         traceback.print_exc()
@@ -1270,20 +1332,22 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     nearest_I : list
         List of dictionaries containing information about the nearest I atoms
     """
-    # Display the 6 nearest I atoms
+    # Display the 6 nearest I atoms to the central Pb atom
     print("\n6 Nearest I Atoms to Central Pb:")
     for i, iodine in enumerate(nearest_I, 1):
         i_coords = iodine['coordinates']
-        print(f"{i}. I atom at line number {iodine['atom_index'] + 2} in file")  # +2 because atoms start from line 3
+        # +2 because atoms start from line 3 in XYZ file (after header lines)
+        print(f"{i}. I atom at line number {iodine['atom_index'] + 2} in file")
         print(f"   Coordinates: X: {i_coords[0]:.6f}, Y: {i_coords[1]:.6f}, Z: {i_coords[2]:.6f}")
         print(f"   Distance from Pb: {iodine['distance']:.6f}")
     
-    # Calculate axial and equatorial angles
+    # Calculate axial and equatorial angles to identify which atoms are axial vs equatorial
     print("\nCalculating Axial and Equatorial Angles...")
     angle_results = calculate_axial_and_equatorial_angles(central_pb_coords, nearest_I)
     
-    # Calculate axial and equatorial bond lengths
+    # Calculate axial and equatorial bond lengths separately for comparison
     print("\nCalculating Axial and Equatorial Bond Lengths...")
+    # Find the indices in nearest_I that correspond to the axial and equatorial atoms identified
     bond_length_results = calculate_axial_equatorial_bond_lengths(
         central_pb_coords, 
         nearest_I, 
@@ -1292,6 +1356,7 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     )
     
     # Display axial and equatorial bond lengths immediately and prominently
+    # This is a key result often needed for perovskite structure analysis
     print("\n--------------------------------------------")
     print("AXIAL AND EQUATORIAL BOND LENGTHS RESULTS:")
     print("--------------------------------------------")
@@ -1304,7 +1369,7 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
         print(f"  Equatorial bond #{i}: Pb to I(line {bond['atom_index'] + 2}): {bond['length']:.6f} Å")
     print("--------------------------------------------")
     
-    # Calculate distortion index
+    # Calculate distortion index (a measure of bond length deviation)
     print("\nCalculating Distortion Index...")
     distortion_results = calculate_distortion_index(central_pb_coords, nearest_I)
     
@@ -1312,7 +1377,7 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     print("\nCalculating Polyhedral Volume...")
     volume_results = calculate_octahedral_volume(central_pb_coords, nearest_I)
     
-    # Calculate edge lengths
+    # Calculate edge lengths of the octahedron
     print("\nCalculating Octahedral Edge Lengths...")
     edge_results = calculate_octahedral_edges(central_pb_coords, nearest_I)
     
@@ -1320,11 +1385,11 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     print("\nCalculating Effective Coordination Number (ECoN)...")
     econ_results = calculate_effective_coordination_number(central_pb_coords, nearest_I)
     
-    # Calculate quadratic elongation
+    # Calculate quadratic elongation (a measure of distortion)
     print("\nCalculating Quadratic Elongation...")
     quad_elongation_results = calculate_quadratic_elongation(central_pb_coords, nearest_I)
     
-    # Calculate bond angle variance
+    # Calculate bond angle variance (another measure of distortion)
     print("\nCalculating Bond Angle Variance...")
     bond_angle_variance_results = calculate_bond_angle_variance(central_pb_coords, nearest_I)
     
@@ -1335,7 +1400,7 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     
     print(f"\nEquatorial I atoms (line numbers in file): {[idx + 2 for idx in angle_results['equatorial_indices']]}")
     
-    # Display the 2 equatorial angles
+    # Display the equatorial angles
     if len(angle_results['adjacent_equatorial_data']) >= 2:
         print("Equatorial I-Pb-I angles (for adjacent I atoms):")
         for i in range(2):  # Display both angles
@@ -1357,25 +1422,27 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     else:
         print("Could not identify adjacent equatorial I atoms.")
     
-    # Display results
+    # Display distortion index results
     print("\nDistortion Index Results:")
     print(f"Bond lengths (Pb-I): {[f'{bl:.6f}' for bl in distortion_results['bond_lengths']]}")
     print(f"Average bond length (lav): {distortion_results['average_bond_length']:.6f}")
     print(f"Normalized deviations (|li-lav|/lav): {[f'{ad:.6f}' for ad in distortion_results['absolute_deviations']]}")
     print(f"\nDistortion Index (D): {distortion_results['distortion_index']:.6f}")
     
+    # Display polyhedral volume results
     print("\nPolyhedral Volume Results:")
     print(f"Total Octahedral Volume: {volume_results['total_volume']:.6f} Å³")
     print(f"Number of tetrahedra used: {volume_results['number_of_tetrahedra']}")
     print(f"Individual tetrahedra volumes: {[f'{v:.6f}' for v in volume_results['tetrahedra_volumes']]}")
     
+    # Display edge length results
     print("\nEdge Length Results:")
     print(f"Average edge length: {edge_results['average_edge_length']:.6f} Å")
     print(f"Minimum edge length: {edge_results['min_edge_length']:.6f} Å")
     print(f"Maximum edge length: {edge_results['max_edge_length']:.6f} Å")
     print(f"Total number of edges: {edge_results['number_of_edges']}")
     
-    # Display edge length results in a more readable format
+    # Display edge length results in a more detailed format
     print("\nDetailed Edge Information:")
     print("\nPb-I bonds:")
     for edge in edge_results['edge_details']:
@@ -1387,6 +1454,7 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
         if edge['type'] == 'I-I':
             print(f"I(line {edge['atom1_index'] + 2}) to I(line {edge['atom2_index'] + 2}): {edge['length']:.6f} Å")
     
+    # Display ECoN results
     print("\nECoN Results:")
     print(f"Bond lengths: {[f'{bl:.6f}' for bl in econ_results['bond_lengths']]}")
     print(f"Minimum bond length: {econ_results['minimum_bond_length']:.6f} Å")
@@ -1394,12 +1462,14 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     print(f"Bond weights: {[f'{bw:.6f}' for bw in econ_results['bond_weights']]}")
     print(f"Effective Coordination Number (ECoN): {econ_results['effective_coordination_number']:.6f}")
     
+    # Display quadratic elongation results
     print("\nQuadratic Elongation Results:")
     print(f"Center-to-vertex distances: {[f'{d:.6f}' for d in quad_elongation_results['center_to_vertex_distances']]}")
     print(f"Ideal center-to-vertex distance (l0): {quad_elongation_results['ideal_center_to_vertex_distance']:.6f} Å")
     print(f"Actual polyhedron volume: {quad_elongation_results['actual_volume']:.6f} Å³")
     print(f"Quadratic elongation <λ>: {quad_elongation_results['quadratic_elongation']:.6f}")
     
+    # Display bond angle variance results
     print("\nBond Angle Variance Results:")
     if bond_angle_variance_results['angles_near_90']:
         print(f"Number of ~90° angles: {len(bond_angle_variance_results['angles_near_90'])}")
@@ -1413,6 +1483,7 @@ def analyze_and_display_results(central_pb_coords, nearest_I):
     print(f"Bond angle variance (σ²): {bond_angle_variance_results['bond_angle_variance']:.6f} deg.²")
     
     # Print a summary of key metrics with focus on individual bond lengths
+    # This provides a compact summary of the most important results
     print("\nSummary of Key Metrics:")
     print("Axial Pb-I bonds:")
     for i, bond in enumerate(bond_length_results['axial_bond_lengths'], 1):
